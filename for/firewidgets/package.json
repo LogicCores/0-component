@@ -1,0 +1,8 @@
+{
+  "name": "0-component-for-firewidgets",
+  "version": "0.0.0",
+  "private": true,
+  "main": "component.js",
+  "dependencies": {
+  }
+}
