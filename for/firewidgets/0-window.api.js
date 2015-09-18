@@ -60,10 +60,6 @@ exports.forLib = function (LIB) {
 
             var factory = context.getComponentInstanceFactory(config.impl);
 
-            if (!factory) {
-                throw new Error("No component instance factory found for component implementation alias '" + config.impl + "'. Make sure the component implementation is being loaded.");
-            }
-            
             function initTemplate () {
                 return LIB.Promise.try(function () {
 
@@ -114,15 +110,28 @@ exports.forLib = function (LIB) {
                 initTemplate()
             ]).spread(function (wiring, template) {
 
+                var localStorage = context.contexts.adapters.cache.localStorage;
+                // TODO: Derive this more elegantly from context.
+                var localStorageNamespace = context.contexts.page.getBasePath() + "~" + context.contexts.page.getPath() + "~" + config.id;
+
                 var componentState = {};
+                try {
+                    componentState = JSON.parse(localStorage.get(localStorageNamespace) || "{}");
+                } catch (err) {
+                    // TODO: Deal with error.
+                }
+
                 var componentContext = {
                     get: function (name) {
                         return componentState[name];
                     },
                     set: function (name, value) {
                         componentState[name] = value;
+                        // TODO: Warn if value is too large or use alternative method to persist state.
+                        localStorage.set(localStorageNamespace, JSON.stringify(componentState));
                     }
                 };
+
                 var dataObject = {};
 
                 var fillHelpers = {};
@@ -191,11 +200,19 @@ exports.forLib = function (LIB) {
                 })
 // TODO: Merge wiring with component using backbone extends
                 .then(function () {
+
+
+/*
                     var component = new factory({
                         domNode: config.domNode,
                         dataConsumer: wiring.dataConsumer
                     });
+*/
 
+                    var Component = function () {
+                    }
+                    
+                    var component = new Component();
 
                     component.destroy = function () {
                         if (wiring.dataConsumer) {
