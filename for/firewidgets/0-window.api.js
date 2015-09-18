@@ -50,6 +50,34 @@ exports.forLib = function (LIB) {
                     };
                     scriptBuffer = [];
                     continue;
+                } else {
+                    m = lines[i].match(/<div(.+)data-component-impl="([^"]+)"(.*)\/>/);
+                    if (m) {
+                        var impl = m[2];
+                        m = (m[1] + m[3]).match(/data-component-id="([^"]+)"/);
+                        if (m) {
+                            var componentImplementation = context.getComponentInstanceFactory(impl);
+                            if (!componentImplementation) {
+                                throw new Error("No component implementation found for '" + impl + "'!");
+                            }
+                            var comp = new componentImplementation();
+                            var htm = comp.templateHtml;
+                            htm = htm.replace(/<div /, '<div data-component-id="' + m[1] + '" data-component-impl="' + impl + '" ');
+
+                            // TODO: Use common helper for this.
+                            var re = /(<|\s)component\s*:\s*([^=]+)(\s*=\s*"[^"]*"(?:\/?>|\s))/g;
+        					var m;
+        					while ( (m = re.exec(htm)) ) {
+        						htm = htm.replace(
+        						    new RegExp(LIB.RegExp_Escape(m[0]), "g"),
+        						    m[1] + "data-component-" + m[2].replace(/:/g, "-") + m[3]
+        						);
+        					}
+
+                            linesOut = linesOut.concat(htm.split("\n"));
+                            continue;
+                        }
+                    }
                 }
                 linesOut.push(lines[i]);
             }
@@ -58,7 +86,12 @@ exports.forLib = function (LIB) {
 
         FireWidgetsComponent.prototype.instanciateComponent = function (config) {
 
-            var factory = context.getComponentInstanceFactory(config.impl);
+            var componentImplementation = context.getComponentInstanceFactory(config.impl);
+
+            var component = null;
+            if (componentImplementation) {
+                component = new componentImplementation({});
+            }
 
             function initTemplate () {
                 return LIB.Promise.try(function () {
@@ -77,7 +110,13 @@ exports.forLib = function (LIB) {
                 return new LIB.Promise(function (resolve, reject) {
                     try {
                         script({
-                            wireComponent: function (wiring) {
+                            wireComponent: function (_wiring) {
+                                
+                                var wiring = {};
+                                if (component) {
+                                    LIB._.assign(wiring, component);
+                                }
+                                LIB._.assign(wiring, _wiring);
 
                                 var componentContext = {};
 
@@ -200,14 +239,6 @@ exports.forLib = function (LIB) {
                 })
 // TODO: Merge wiring with component using backbone extends
                 .then(function () {
-
-
-/*
-                    var component = new factory({
-                        domNode: config.domNode,
-                        dataConsumer: wiring.dataConsumer
-                    });
-*/
 
                     var Component = function () {
                     }
