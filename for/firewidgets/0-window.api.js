@@ -93,6 +93,50 @@ exports.forLib = function (LIB) {
                 component = new componentImplementation({});
             }
 
+
+            var ComponentContext = function () {
+                var self = this;
+                
+                var state = {};
+
+                var localStorage = context.contexts.adapters.cache.localStorage;
+                // TODO: Derive this more elegantly from context.
+                var localStorageNamespace = context.contexts.page.getBasePath() + "~" + context.contexts.page.getPath() + "~" + config.id;
+    
+                var state = {};
+                try {
+                    state = JSON.parse(localStorage.get(localStorageNamespace) || "{}");
+                } catch (err) {
+                    // TODO: Deal with error.
+                }
+
+                self.get = function (name) {
+                    return state[name];
+                };
+                self.set = function (name, value) {
+                    if (value === state[name]) return;
+                    state[name] = value;
+                    self.emit("changed");
+                    // TODO: Warn if value is too large or use alternative method to persist state.
+                    localStorage.set(localStorageNamespace, JSON.stringify(state));
+                };
+
+                var pageComponents = {};
+                self.getPageComponent_P = function (id) {
+                    return context.getComponentForActivePage(id).then(function (component) {
+                        pageComponents[id] = component;
+                        return component;
+                    })
+                }
+                self.getPageComponent = function (id) {
+                    return pageComponents[id];
+                }
+            }
+            ComponentContext.prototype = Object.create(LIB.EventEmitter.prototype);
+            
+            var componentContext = new ComponentContext();
+
+
             function initTemplate () {
                 return LIB.Promise.try(function () {
 
@@ -131,8 +175,6 @@ exports.forLib = function (LIB) {
                     }
                     LIB._.assign(wiring, _wiring);
 
-                    var componentContext = {};
-
                     var dataConsumer = null;
 
                     if (typeof wiring.mapData === "function") {
@@ -155,28 +197,6 @@ exports.forLib = function (LIB) {
                 wireComponent(),
                 initTemplate()
             ]).spread(function (wiring, template) {
-
-                var localStorage = context.contexts.adapters.cache.localStorage;
-                // TODO: Derive this more elegantly from context.
-                var localStorageNamespace = context.contexts.page.getBasePath() + "~" + context.contexts.page.getPath() + "~" + config.id;
-
-                var componentState = {};
-                try {
-                    componentState = JSON.parse(localStorage.get(localStorageNamespace) || "{}");
-                } catch (err) {
-                    // TODO: Deal with error.
-                }
-
-                var componentContext = {
-                    get: function (name) {
-                        return componentState[name];
-                    },
-                    set: function (name, value) {
-                        componentState[name] = value;
-                        // TODO: Warn if value is too large or use alternative method to persist state.
-                        localStorage.set(localStorageNamespace, JSON.stringify(componentState));
-                    }
-                };
 
                 var dataObject = {};
 
@@ -207,9 +227,23 @@ exports.forLib = function (LIB) {
                     if (!wiring.dataConsumer) {
                         return LIB.Promise.resolve();
                     }
-                    return wiring.dataConsumer.ensureLoaded().then(function () {
-                        wiring.dataConsumer.on("changed", function () {
-                            fillComponentTrigger();
+                    return wiring.dataConsumer.ensureDepends({
+                        getPageComponent: function (id) {
+                            return componentContext.getPageComponent_P(id).then(function (component) {
+                                component.on("changed", function () {
+                                    fillComponentTrigger();
+                                });
+                                return component;
+                            });
+                        }
+                    }).then(function () {
+                        return wiring.dataConsumer.ensureLoaded().then(function () {
+                            wiring.dataConsumer.on("changed", function () {
+                                fillComponentTrigger();
+                            });
+                            componentContext.on("changed", function () {
+                                fillComponentTrigger();
+                            });
                         });
                     });
                 }
@@ -226,6 +260,16 @@ exports.forLib = function (LIB) {
                         if (wiring.dataConsumer) {
                             LIB._.assign(dataObject, wiring.dataConsumer.getData());
                         }
+                        
+                        if (fillComponent._previousDataObject) {
+                            // TODO: Make 'dataObject immutable and compute checksum so we can compare checksums'
+                            if (JSON.stringify(dataObject) === fillComponent._previousDataObject) {
+                                // We do not fill as data has not changed.
+                                // State changes should be handled in the markup callback.
+                                return;
+                            }
+                        }
+                        fillComponent._previousDataObject = JSON.stringify(dataObject);
 
                         return wiring.fill.call(
                             fillHelpers,
@@ -243,19 +287,34 @@ exports.forLib = function (LIB) {
                     // Then we mark up the component once
                     return markupComponent();
                 })
-// TODO: Merge wiring with component using backbone extends
                 .then(function () {
 
                     var Component = function () {
+                        var self = this;
+
+                        self.id = config.id;
+
+                        self.get = function (name) {
+                            // TODO: Merge with config options before returning value at pointer
+                            return componentContext.get(name);
+                        }
+
+                        componentContext.on("changed", function () {
+                            self.emit("changed");
+                        });
                     }
-                    
+                    Component.prototype = Object.create(LIB.EventEmitter.prototype);
+
                     var component = new Component();
 
                     component.destroy = function () {
                         if (wiring.dataConsumer) {
                             wiring.dataConsumer.removeAllListeners();
                         }
+                        this.emit("destroy");
                     }
+
+                    context.registerComponentForActivePage(component);
 
                     return component;
                 });

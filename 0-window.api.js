@@ -51,7 +51,8 @@ exports.forLib = function (LIB) {
 
             var state = {
                 componentInstanceFactories: {},
-                componentScripts: {}
+                componentScripts: {},
+                componentsForPages: {}
             };
             LIB._.merge(state, LIB._.cloneDeep(defaults));
 
@@ -78,6 +79,28 @@ exports.forLib = function (LIB) {
 
             self.getComponentScript = function (alias) {
                 return state.componentScripts[alias];
+            }
+
+            self.registerComponentForActivePage = function (component) {
+                if (!state.componentsForPages[contexts.page.getPath()]) {
+                    state.componentsForPages[contexts.page.getPath()] = {};
+                }
+                if (!state.componentsForPages[contexts.page.getPath()][component.id]) {
+                    state.componentsForPages[contexts.page.getPath()][component.id] = LIB.Promise.defer();
+                }
+                state.componentsForPages[contexts.page.getPath()][component.id].resolve(component);
+                component.once("destroy", function () {
+                    delete state.componentsForPages[contexts.page.getPath()];
+                });
+            }
+            self.getComponentForActivePage = function (id) {
+                if (!state.componentsForPages[contexts.page.getPath()]) {
+                    state.componentsForPages[contexts.page.getPath()] = {};
+                }
+                if (!state.componentsForPages[contexts.page.getPath()][id]) {
+                    state.componentsForPages[contexts.page.getPath()][id] = LIB.Promise.defer();
+                }
+                return state.componentsForPages[contexts.page.getPath()][id].promise;
             }
         }
         Context.prototype = Object.create(LIB.EventEmitter.prototype);
