@@ -51,7 +51,7 @@ exports.forLib = function (LIB) {
                     scriptBuffer = [];
                     continue;
                 } else {
-                    m = lines[i].match(/<div(.+)data-component-impl="([^"]+)"(.*)\/>/);
+                    m = lines[i].match(/<(.+)data-component-impl="([^"]+)"(.*)\/>/);
                     if (m) {
                         var impl = m[2];
                         m = (m[1] + m[3]).match(/data-component-id="([^"]+)"/);
@@ -62,7 +62,7 @@ exports.forLib = function (LIB) {
                             }
                             var comp = new componentImplementation();
                             var htm = comp.templateHtml;
-                            htm = htm.replace(/<div /, '<div data-component-id="' + m[1] + '" data-component-impl="' + impl + '" ');
+                            htm = htm.replace(/<(\S+) /, '<$1 data-component-id="' + m[1] + '" data-component-impl="' + impl + '" ');
 
                             // TODO: Use common helper for this.
                             var re = /(<|\s)component\s*:\s*([^=]+)(\s*=\s*"[^"]*"(?:\/?>|\s))/g;
@@ -105,42 +105,49 @@ exports.forLib = function (LIB) {
             }
 
             function wireComponent () {
-                var script = context.getComponentScript(config.id);
-                if (!script) return LIB.Promise.resolve({});
-                return new LIB.Promise(function (resolve, reject) {
-                    try {
-                        script({
-                            wireComponent: function (_wiring) {
-                                
-                                var wiring = {};
-                                if (component) {
-                                    LIB._.assign(wiring, component);
+
+                function loadScriptedWiring () {
+                    var script = context.getComponentScript(config.id);
+                    if (!script) return LIB.Promise.resolve({});
+                    return new LIB.Promise(function (resolve, reject) {
+                        try {
+                            script({
+                                wireComponent: function (wiring) {
+                                    return resolve(wiring);
                                 }
-                                LIB._.assign(wiring, _wiring);
+                            });
+                        } catch (err) {
+                            console.error("Error wiring component using script:", err.stack);
+                            return reject(err);
+                        }
+                    });
+                }
+                
+                return loadScriptedWiring().then(function (_wiring) {
 
-                                var componentContext = {};
-
-                                var dataConsumer = null;
-
-                                if (typeof wiring.mapData === "function") {
-                                    // TODO: Make which adapter to use configurable when refactoring to sue ccjson
-                                    dataConsumer = new (context.contexts.adapters.data["ccjson.record.mapper"]).Consumer();
-
-                                    // TODO: Make congigurable
-                                    dataConsumer.setSourceBaseUrl("/api/page" + context.contexts.page.getPath() + "/firewidgets/" + config.id + "/pointer");
-
-                                    dataConsumer.mapData(wiring.mapData(componentContext, dataConsumer));
-                                }
-
-                                return resolve(LIB._.assign(wiring, {
-                                    dataConsumer: dataConsumer
-                                }));
-                            }
-                        });
-                    } catch (err) {
-                        console.error("Error wiring component using script:", err.stack);
-                        return reject(err);
+                    var wiring = {};
+                    if (component) {
+                        LIB._.assign(wiring, component);
                     }
+                    LIB._.assign(wiring, _wiring);
+
+                    var componentContext = {};
+
+                    var dataConsumer = null;
+
+                    if (typeof wiring.mapData === "function") {
+                        // TODO: Make which adapter to use configurable when refactoring to sue ccjson
+                        dataConsumer = new (context.contexts.adapters.data["ccjson.record.mapper"]).Consumer();
+
+                        // TODO: Make congigurable
+                        dataConsumer.setSourceBaseUrl("/api/page" + context.contexts.page.getPath() + "/firewidgets/" + config.id + "/pointer");
+
+                        dataConsumer.mapData(wiring.mapData(componentContext, dataConsumer));
+                    }
+
+                    return LIB._.assign(wiring, {
+                        dataConsumer: dataConsumer
+                    });
                 });
             }
 
@@ -210,16 +217,15 @@ exports.forLib = function (LIB) {
                 // Called every time data CHANGES
                 function fillComponent () {
                     return LIB.Promise.try(function () {
-                        if (
-                            !wiring.fill ||
-                            !wiring.dataConsumer
-                        ) return;
+                        if (!wiring.fill) return;
 
                         // Re-assign all data keys
                         Object.keys(dataObject).forEach(function (name) {
                             delete dataObject[name];
                         });
-                        LIB._.assign(dataObject, wiring.dataConsumer.getData());
+                        if (wiring.dataConsumer) {
+                            LIB._.assign(dataObject, wiring.dataConsumer.getData());
+                        }
 
                         return wiring.fill.call(
                             fillHelpers,
