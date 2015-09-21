@@ -133,7 +133,8 @@ exports.forLib = function (LIB) {
                 }
             }
             ComponentContext.prototype = Object.create(LIB.EventEmitter.prototype);
-            
+            ComponentContext.prototype.contexts = context.contexts;
+
             var componentContext = new ComponentContext();
 
 
@@ -260,7 +261,8 @@ exports.forLib = function (LIB) {
                         if (wiring.dataConsumer) {
                             LIB._.assign(dataObject, wiring.dataConsumer.getData());
                         }
-                        
+
+                        // TODO: Make sure 'dataObject' records serialize properly.
                         if (fillComponent._previousDataObject) {
                             // TODO: Make 'dataObject immutable and compute checksum so we can compare checksums'
                             if (JSON.stringify(dataObject) === fillComponent._previousDataObject) {
