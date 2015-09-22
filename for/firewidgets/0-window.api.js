@@ -3,6 +3,9 @@ exports.forLib = function (LIB) {
 
     const COMPONENT = require("../../../../lib/firewidgets-for-zerosystem/window.component");
     const DATA_MAPPER  = require("../../../data/for/ccjson.record.mapper/0-window.api").forLib(LIB);
+    const h = require("../../../../lib/cvdom/h");
+    const ch = require("../../../../lib/cvdom/ch");
+    const createElement = require('virtual-dom/create-element');
 
     var exports = {};
 
@@ -13,80 +16,146 @@ exports.forLib = function (LIB) {
         }
 
         FireWidgetsComponent.prototype.liftComponentsForPageFragment = function (page, html) {
+            return new LIB.Promise(function (resolve, reject) {
+                try {
+                    // TODO: Proactively start initializing component implementations
+                    //       so they are ready to go when HTML gets rendered in container.
+                    //       This is irrelevant right now as component implementations
+                    //       are loaded in batch along with app.
+        
+                    // TODO: Use proper HTML parser.
+                    var lines = html.split("\n");
+                    var linesOut = [];
+                    var m = null;
+                    var scriptInfo = null;
+                    var scriptBuffer = null;
+                    for (var i=0 ; i<lines.length ; i++) {
+                        if (scriptBuffer) {
+                            if (/<\/script>/.test(lines[i])) {
+                                if (scriptInfo.location === "window") {
+                                    if (scriptInfo.context === "FireWidget/Bundle") {
+        
+                                        // TODO: Only eval if bundle has correct signature.
+                                        var container = new Function("FireWidget", scriptBuffer.join("\n"));
+                                        container({
+                                            registerTemplate: function (impl) {
+                                                if (typeof impl.getScripts === "function") {
+                                                    impl.getScripts().forEach(function (scriptInfo) {
+                                                        context.registerComponentScript(scriptInfo.id, new Function(
+                                                            "context",
+                                                            scriptInfo.code
+                                                        ));
+                                                    });
+                                                }
+                                                if (typeof impl.getComponents === "function") {
+                                                    var components = impl.getComponents();
+                                                    Object.keys(components).forEach(function (id) {
+                                                        context.registerComponentOverrideTemplateForActivePage(
+                                                            id,
+                                                            components[id]
+                                                        );
+                                                    });
+                                                }
 
-            // TODO: Proactively start initializing component implementations
-            //       so they are ready to go when HTML gets rendered in container.
-            //       This is irrelevant right now as component implementations
-            //       are loaded in batch along with app.
+                                                var layoutInfo = impl.getLayout();
+                                                var chi = ch({
+                                                    "$anchors": function (name) {
+                                                        return null;                                                            
+                                                    }
+                                                });
+                                                var vtree = layoutInfo.buildVTree(h, chi);
+                                                return resolve(function render () {
+                                                    return createElement(vtree);
+                                                });
 
-            // TODO: Use proper HTML parser.
-            var lines = html.split("\n");
-            var linesOut = [];
-            var m = null;
-            var scriptInfo = null;
-            var scriptBuffer = null;
-            for (var i=0 ; i<lines.length ; i++) {
-                if (scriptBuffer) {
-                    if (/<\/script>/.test(lines[i])) {
-                        if (scriptInfo.location === "window") {
-                            context.registerComponentScript(scriptInfo.id, new Function(
-                                "context",
-                                scriptBuffer.join("\n")
-                            ));
-                        }
-                        scriptInfo = null;
-                        scriptBuffer = null;
-                        continue;
-                    }
-                    scriptBuffer.push(lines[i]);
-                    continue;
-                }
-                // TODO: Be much more forgiving.
-                m = lines[i].match(/<script data-component-id="([^"]+)" data-component-location="([^"]+)">/);
-                if (m) {
-                    scriptInfo = {
-                        id: m[1],
-                        location: m[2]
-                    };
-                    scriptBuffer = [];
-                    continue;
-                } else {
-                    m = lines[i].match(/<(.+)data-component-impl="([^"]+)"(.*)\/>/);
-                    if (m) {
-                        var impl = m[2];
-                        m = (m[1] + m[3]).match(/data-component-id="([^"]+)"/);
-                        if (m) {
-                            var componentImplementation = context.getComponentInstanceFactory(impl);
-                            if (!componentImplementation) {
-                                throw new Error("No component implementation found for '" + impl + "'!");
+                                                    
+        //                                            linesOut.push();
+        /*
+                                                if (typeof impl.buildVTree === "function") {
+        console.log("HSCRIPT", impl.buildVTree.toString());
+                                                    var vtree = impl.buildVTree(h, ch({}));
+        console.log("vtree", vtree);
+                                                }
+        */
+                                            }
+                                        });
+                                    } else
+                                    if (scriptInfo.id) {
+                                        context.registerComponentScript(scriptInfo.id, new Function(
+                                            "context",
+                                            scriptBuffer.join("\n")
+                                        ));
+                                    }
+                                }
+                                scriptInfo = null;
+                                scriptBuffer = null;
+                                continue;
                             }
-                            var comp = new componentImplementation();
-                            var htm = comp.templateHtml;
-                            htm = htm.replace(/<(\S+) /, '<$1 data-component-id="' + m[1] + '" data-component-impl="' + impl + '" ');
-
-                            // TODO: Use common helper for this.
-                            var re = /(<|\s)component\s*:\s*([^=]+)(\s*=\s*"[^"]*"(?:\/?>|\s))/g;
-        					var m;
-        					while ( (m = re.exec(htm)) ) {
-        						htm = htm.replace(
-        						    new RegExp(LIB.RegExp_Escape(m[0]), "g"),
-        						    m[1] + "data-component-" + m[2].replace(/:/g, "-") + m[3]
-        						);
-        					}
-
-                            linesOut = linesOut.concat(htm.split("\n"));
+                            scriptBuffer.push(lines[i]);
                             continue;
                         }
+                        // TODO: Be much more forgiving.
+                        m = lines[i].match(/<script data-component-id="([^"]+)" data-component-location="([^"]+)">/);
+                        if (m) {
+                            scriptInfo = {
+                                id: m[1],
+                                location: m[2]
+                            };
+                            scriptBuffer = [];
+                            continue;
+                        }
+                        m = lines[i].match(/<script data-component-context="([^"]+)" data-component-location="([^"]+)">/);
+                        if (m) {
+                            scriptInfo = {
+                                context: m[1],
+                                location: m[2]
+                            };
+                            scriptBuffer = [];
+                            continue;
+                        }
+                        m = lines[i].match(/<(.+)data-component-impl="([^"]+)"(.*)\/>/);
+                        if (m) {
+                            var impl = m[2];
+                            m = (m[1] + m[3]).match(/data-component-id="([^"]+)"/);
+                            if (m) {
+                                var componentImplementation = context.getComponentInstanceFactory(impl);
+                                if (!componentImplementation) {
+                                    throw new Error("No component implementation found for '" + impl + "'!");
+                                }
+                                var comp = new componentImplementation();
+                                var htm = comp.templateHtml;
+                                htm = htm.replace(/<(\S+) /, '<$1 data-component-id="' + m[1] + '" data-component-impl="' + impl + '" ');
+        
+                                // TODO: Use common helper for this.
+                                var re = /(<|\s)component\s*:\s*([^=]+)(\s*=\s*"[^"]*"(?:\/?>|\s))/g;
+            					var m;
+            					while ( (m = re.exec(htm)) ) {
+            						htm = htm.replace(
+            						    new RegExp(LIB.RegExp_Escape(m[0]), "g"),
+            						    m[1] + "data-component-" + m[2].replace(/:/g, "-") + m[3]
+            						);
+            					}
+
+                                linesOut = linesOut.concat(htm.split("\n"));
+                                continue;
+                            }
+                        }
+                        linesOut.push(lines[i]);
                     }
+                    return resolve(linesOut.join("\n"));
+                } catch (err) {
+                    return reject(err);
                 }
-                linesOut.push(lines[i]);
-            }
-            return LIB.Promise.resolve(linesOut.join("\n"));
+            });
         }
 
         FireWidgetsComponent.prototype.instanciateComponent = function (config) {
 
+//console.log("instanciateComponent config", config);
+
             var componentImplementation = context.getComponentInstanceFactory(config.impl);
+
+//console.log("instanciateComponent componentImplementation", componentImplementation);
 
             var component = null;
             if (componentImplementation) {
@@ -138,13 +207,23 @@ exports.forLib = function (LIB) {
             var componentContext = new ComponentContext();
 
 
+            var componentOverrideTemplate = context.getComponentOverrideTemplateForActivePage(config.id);
+//console.log("componentOverrideTemplate", componentOverrideTemplate);
+
+
             function initTemplate () {
                 return LIB.Promise.try(function () {
-
-                    var template = new context.contexts.adapters.template.firewidgets.Template();
-
+                    var template = null;
+                    if (componentOverrideTemplate) {
+                        if (typeof componentOverrideTemplate.buildVTree === "function") {
+                            template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(componentOverrideTemplate);
+                        } else {
+                            throw new Error("'componentOverrideTemplate' object type not supported!");
+                        }
+                    } else {
+                        template = new context.contexts.adapters.template.firewidgets.jQueryTemplate();
+                    }
                     template.attachDomNode(config.domNode);
-
                     return template;
                 });
             }
@@ -153,6 +232,9 @@ exports.forLib = function (LIB) {
 
                 function loadScriptedWiring () {
                     var script = context.getComponentScript(config.id);
+
+//console.log("scripted wiring", config.id, script);
+
                     if (!script) return LIB.Promise.resolve({});
                     return new LIB.Promise(function (resolve, reject) {
                         try {
@@ -201,29 +283,6 @@ exports.forLib = function (LIB) {
 
                 var dataObject = {};
 
-                var fillHelpers = {};
-                var templateComponentHelpers = template.getComponentHelpers();
-                Object.keys(templateComponentHelpers).forEach(function (name) {
-                    fillHelpers[name] = function () {
-                        var args = Array.prototype.slice.call(arguments);
-                        args.unshift(componentContext);
-                        return templateComponentHelpers[name].apply(null, args);
-                    }
-                });
-
-
-                // Called ONCE
-                function markupComponent () {
-                    return LIB.Promise.try(function () {
-                        if (!wiring.markup) return;
-                        return wiring.markup(
-                            componentContext,
-                            config.domNode,
-                            dataObject
-                        );
-                    });
-                }
-
                 function ensureDataLoaded (fillComponentTrigger) {
                     if (!wiring.dataConsumer) {
                         return LIB.Promise.resolve();
@@ -249,18 +308,37 @@ exports.forLib = function (LIB) {
                     });
                 }
 
+
+                // Called ONCE
+                function markupComponent () {
+                    return LIB.Promise.try(function () {
+                        if (!wiring.markup) return;
+                        return wiring.markup(
+                            componentContext,
+                            config.domNode,
+                            dataObject
+                        );
+                    });
+                }
+
+
+                function syncData () {
+                    // Re-assign all data keys
+                    Object.keys(dataObject).forEach(function (name) {
+                        delete dataObject[name];
+                    });
+                    if (wiring.dataConsumer) {
+                        LIB._.assign(dataObject, wiring.dataConsumer.getData());
+                    }
+                }
+
+                var fillHelpers = {};
                 // Called every time data CHANGES
                 function fillComponent () {
                     return LIB.Promise.try(function () {
                         if (!wiring.fill) return;
 
-                        // Re-assign all data keys
-                        Object.keys(dataObject).forEach(function (name) {
-                            delete dataObject[name];
-                        });
-                        if (wiring.dataConsumer) {
-                            LIB._.assign(dataObject, wiring.dataConsumer.getData());
-                        }
+                        syncData();
 
                         // TODO: Make sure 'dataObject' records serialize properly.
                         if (fillComponent._previousDataObject) {
@@ -281,13 +359,60 @@ exports.forLib = function (LIB) {
                         );
                     });
                 }
+                
+                
+                function renderComponentOverrideTemplate () {
+                    function getTemplateControllingData () {
+                        return LIB.Promise.try(function () {
+                            syncData();
+                            if (!wiring.getTemplateData) {
+                                return dataObject;
+                            }
+                            return wiring.getTemplateData.call(
+                                null,
+                                componentContext,
+                                dataObject
+                            );
+                        });
+                    }
+                    return getTemplateControllingData().then(function (data) {
+
+//console.log("renderComponentOverrideTemplate", data);
+
+                        template.render(data);
+
+//console.log('trigger after render!');
+
+                    });
+                }
+
+
+                function renderWidget () {
+
+                    // Managed templates
+                    if (componentOverrideTemplate) {
+                        return renderComponentOverrideTemplate();
+                    }
+
+                    // DOM-based templates
+                    var templateComponentHelpers = template.getComponentHelpers();
+                    Object.keys(templateComponentHelpers).forEach(function (name) {
+                        fillHelpers[name] = function () {
+                            var args = Array.prototype.slice.call(arguments);
+                            args.unshift(componentContext);
+                            return templateComponentHelpers[name].apply(null, args);
+                        }
+                    });
+                    return fillComponent().then(function () {
+                        // Then we mark up the component once
+                        return markupComponent();
+                    });
+                }
+
 
                 // First we fill the component with data
                 return ensureDataLoaded(fillComponent).then(function() {
-                    return fillComponent();
-                }).then(function () {
-                    // Then we mark up the component once
-                    return markupComponent();
+                    renderWidget();
                 })
                 .then(function () {
 

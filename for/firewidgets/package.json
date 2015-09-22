@@ -3,5 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "dependencies": {
+    "traverse": "^0.6.6",
+    "virtual-dom": "^2.1.1"
   }
 }

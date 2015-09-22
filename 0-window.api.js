@@ -51,6 +51,7 @@ exports.forLib = function (LIB) {
 
             var state = {
                 componentInstanceFactories: {},
+                componentOverrideTemplateForActivePages: {},
                 componentScripts: {},
                 componentsForPages: {}
             };
@@ -66,6 +67,14 @@ exports.forLib = function (LIB) {
 
             self.getComponentInstanceFactory = function (alias) {
                 return state.componentInstanceFactories[alias];
+            }
+
+            self.registerComponentOverrideTemplateForActivePage = function (alias, impl) {
+                // TODO: Keep track of components per page and don't override.
+                state.componentOverrideTemplateForActivePages[alias] = impl;
+            }
+            self.getComponentOverrideTemplateForActivePage = function (alias) {
+                return state.componentOverrideTemplateForActivePages[alias];
             }
 
             self.registerComponentScript = function (alias, scriptFunction) {
