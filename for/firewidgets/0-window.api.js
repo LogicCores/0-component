@@ -3,9 +3,10 @@ exports.forLib = function (LIB) {
 
     const COMPONENT = require("../../../../lib/firewidgets-for-zerosystem/window.component");
     const DATA_MAPPER  = require("../../../data/for/ccjson.record.mapper/0-window.api").forLib(LIB);
-    const h = require("../../../../lib/cvdom/h");
+
+    const h = LIB.vdom.h;
     const ch = require("../../../../lib/cvdom/ch");
-    const createElement = require('virtual-dom/create-element');
+    const createElement = LIB.vdom.createElement;
 
     var exports = {};
 
@@ -57,6 +58,7 @@ exports.forLib = function (LIB) {
                                                     });
                                                 }
 
+                                                // Render page template
                                                 var layoutInfo = impl.getLayout();
                                                 var chi = ch({
                                                     "$anchors": function (name) {
@@ -67,16 +69,6 @@ exports.forLib = function (LIB) {
                                                 return resolve(function render () {
                                                     return createElement(vtree);
                                                 });
-
-                                                    
-        //                                            linesOut.push();
-        /*
-                                                if (typeof impl.buildVTree === "function") {
-        console.log("HSCRIPT", impl.buildVTree.toString());
-                                                    var vtree = impl.buildVTree(h, ch({}));
-        console.log("vtree", vtree);
-                                                }
-        */
                                             }
                                         });
                                     } else
@@ -125,7 +117,7 @@ exports.forLib = function (LIB) {
                                 var comp = new componentImplementation();
                                 var htm = comp.templateHtml;
                                 htm = htm.replace(/<(\S+) /, '<$1 data-component-id="' + m[1] + '" data-component-impl="' + impl + '" ');
-        
+
                                 // TODO: Use common helper for this.
                                 var re = /(<|\s)component\s*:\s*([^=]+)(\s*=\s*"[^"]*"(?:\/?>|\s))/g;
             					var m;
@@ -214,11 +206,26 @@ exports.forLib = function (LIB) {
             function initTemplate () {
                 return LIB.Promise.try(function () {
                     var template = null;
+
+//console.log("componentOverrideTemplate", componentOverrideTemplate);
+//console.log("component", component.templateChscript);
                     if (componentOverrideTemplate) {
-                        if (typeof componentOverrideTemplate.buildVTree === "function") {
-                            template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(componentOverrideTemplate);
+                        // If component impl ships its own template we use it.
+                        if (
+                            component &&
+                            component.templateChscript
+                        ) {
+                            // TODO: Pass template from page to component to override or add section implementations.
+    //console.log("layout", component.templateChscript.getLayout());
+                            template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
+                                component.templateChscript.getLayout()
+                            );
                         } else {
-                            throw new Error("'componentOverrideTemplate' object type not supported!");
+                            if (typeof componentOverrideTemplate.buildVTree === "function") {
+                                template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(componentOverrideTemplate);
+                            } else {
+                                throw new Error("'componentOverrideTemplate' object type not supported!");
+                            }
                         }
                     } else {
                         template = new context.contexts.adapters.template.firewidgets.jQueryTemplate();
@@ -361,6 +368,7 @@ exports.forLib = function (LIB) {
                 }
                 
                 
+
                 function renderComponentOverrideTemplate () {
                     function getTemplateControllingData () {
                         return LIB.Promise.try(function () {
@@ -375,17 +383,42 @@ exports.forLib = function (LIB) {
                             );
                         });
                     }
+                    function afterRender () {
+                        return LIB.Promise.try(function () {
+                            if (!wiring.afterRender) {
+                                return;
+                            }
+                            var helpers = {
+                              findActionableNode: function (target) {
+                                var elm = $(target);
+                                if (elm.length === 0) return null;
+                                var action = elm.attr("data-component-action");
+                                if (!action) {
+                                  return helpers.findActionableNode(elm.parent());
+                                }
+                                return {
+                                  action: action,
+                                  id: elm.attr("data-id")
+                                };
+                              }
+                            }
+                            return wiring.afterRender.call(
+                                helpers,
+                                componentContext,
+                                config.domNode,
+                                dataObject
+                            );
+                        });
+                    }
                     return getTemplateControllingData().then(function (data) {
-
-//console.log("renderComponentOverrideTemplate", data);
-
                         template.render(data);
-
-//console.log('trigger after render!');
-
+                        return afterRender(data);
                     });
                 }
 
+                function syncComponentOverrideTemplate () {
+                    return renderComponentOverrideTemplate();
+                }
 
                 function renderWidget () {
 
@@ -409,9 +442,12 @@ exports.forLib = function (LIB) {
                     });
                 }
 
-
                 // First we fill the component with data
-                return ensureDataLoaded(fillComponent).then(function() {
+                return ensureDataLoaded(
+                    componentOverrideTemplate ?
+                        syncComponentOverrideTemplate :
+                        fillComponent
+                ).then(function() {
                     renderWidget();
                 })
                 .then(function () {
