@@ -192,6 +192,42 @@ exports.forLib = function (LIB) {
                 self.getPageComponent = function (id) {
                     return pageComponents[id];
                 }
+
+                self.callServerAction = function (action, payload) {
+
+                    // TODO: Support different request formatters.
+
+                    var uri = "/api/page" + context.contexts.page.getPath() + "/firewidgets/" + config.id + "/action";
+
+                    return context.contexts.adapters.request.window.postJSON(uri, {}, {
+                        action: action,
+                        payload: payload
+                    }).then(function(response) {
+            			if (response.status !== 200) {
+            				var err = new Error("Error making request to '" + uri + "'");
+            				err.code = response.status;
+            				throw err;
+            			}
+            			return response.json();
+            		}).then(function (data) {
+
+            		    // See if there is new data to merge into the collections
+            		    if (data.collections) {
+            			    Object.keys(data.collections).forEach(function (collectionName) {
+            			        var collection = context.contexts.data.getCollection(collectionName);
+            			        if (!collection) {
+            			            // TODO: Optionally just issue warning
+            			            throw new Error("Collection with name '" + collectionName + "' needed to store fetched data not found!");
+            			        }
+                    			collection.store.add(data.collections[collectionName], {
+                    			    merge: true
+                    			});
+            			    });
+            		    }
+
+            		    return data.result || null;
+            		});
+                }
             }
             ComponentContext.prototype = Object.create(LIB.EventEmitter.prototype);
             ComponentContext.prototype.contexts = context.contexts;
@@ -287,6 +323,8 @@ exports.forLib = function (LIB) {
                 wireComponent(),
                 initTemplate()
             ]).spread(function (wiring, template) {
+                
+                var dataFetchedTime = null;
 
                 var dataObject = {};
 
@@ -298,6 +336,7 @@ exports.forLib = function (LIB) {
                         getPageComponent: function (id) {
                             return componentContext.getPageComponent_P(id).then(function (component) {
                                 component.on("changed", function () {
+console.log("NOTIFY: page comp changed", event);
                                     fillComponentTrigger();
                                 });
                                 return component;
@@ -305,10 +344,21 @@ exports.forLib = function (LIB) {
                         }
                     }).then(function () {
                         return wiring.dataConsumer.ensureLoaded().then(function () {
-                            wiring.dataConsumer.on("changed", function () {
-                                fillComponentTrigger();
+                            wiring.dataConsumer.on("changed", function (event) {
+
+                                // We ignore the event if it was from before our last fetch.
+                                // The event comes in later as it may be debounced.
+                                if (event.time < dataFetchedTime) {
+
+console.log("IGNORE: data consumer changed", event, dataFetchedTime);
+
+                                } else {
+console.log("NOTIFY: data consumer changed", event, dataFetchedTime);
+                                    fillComponentTrigger();
+                                }
                             });
                             componentContext.on("changed", function () {
+console.log("NOTIFY: component context changed", event);
                                 fillComponentTrigger();
                             });
                         });
@@ -336,6 +386,8 @@ exports.forLib = function (LIB) {
                     });
                     if (wiring.dataConsumer) {
                         LIB._.assign(dataObject, wiring.dataConsumer.getData());
+                        dataFetchedTime = Date.now();
+console.log("GET DATA!!", dataObject);                        
                     }
                 }
 
@@ -370,6 +422,8 @@ exports.forLib = function (LIB) {
                 
 
                 function renderComponentOverrideTemplate () {
+console.log("render comp override", config.id);                            
+
                     function getTemplateControllingData () {
                         return LIB.Promise.try(function () {
                             syncData();
@@ -402,6 +456,9 @@ exports.forLib = function (LIB) {
                                 };
                               }
                             }
+console.log("trigger after render", config.id);       
+
+
                             return wiring.afterRender.call(
                                 helpers,
                                 componentContext,
@@ -417,6 +474,8 @@ exports.forLib = function (LIB) {
                 }
 
                 function syncComponentOverrideTemplate () {
+
+console.log("SYNC COMPONENT!");                    
                     return renderComponentOverrideTemplate();
                 }
 
@@ -469,6 +528,12 @@ exports.forLib = function (LIB) {
                     Component.prototype = Object.create(LIB.EventEmitter.prototype);
 
                     var component = new Component();
+
+                    if (wiring.dataConsumer) {
+                        wiring.dataConsumer.on("changed", function () {
+                            component.emit("changed");
+                        });
+                    }
 
                     component.destroy = function () {
                         if (wiring.dataConsumer) {
