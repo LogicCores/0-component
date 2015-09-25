@@ -170,6 +170,10 @@ exports.forLib = function (LIB) {
                 } catch (err) {
                     // TODO: Deal with error.
                 }
+                
+                // An API the component may expose for access by other components on the same page
+                self.pageAPI = {};
+                
 
                 self.get = function (name) {
                     return state[name];
@@ -309,7 +313,7 @@ exports.forLib = function (LIB) {
 
                         // TODO: Make congigurable
                         dataConsumer.setSourceBaseUrl("/api/page" + context.contexts.page.getPath() + "/firewidgets/" + config.id + "/pointer");
-
+//console.log("MAP DATA", config.id);
                         dataConsumer.mapData(wiring.mapData(componentContext, dataConsumer));
                     }
 
@@ -328,21 +332,32 @@ exports.forLib = function (LIB) {
 
                 var dataObject = {};
 
-                function ensureDataLoaded (fillComponentTrigger) {
+                function ensureDataLoaded (_fillComponentTrigger) {
                     if (!wiring.dataConsumer) {
                         return LIB.Promise.resolve();
                     }
+                    var consumerReady = false;
+                    function fillComponentTrigger () {
+                        if (!consumerReady) return function () {};
+                        return _fillComponentTrigger();
+                    }
                     return wiring.dataConsumer.ensureDepends({
                         getPageComponent: function (id) {
+
+//console.log("GET PAGE COMPONENT ...", config.id, id);                            
                             return componentContext.getPageComponent_P(id).then(function (component) {
+//console.log("  GOT PAGE COMPONENT", config.id, id);                            
                                 component.on("changed", function () {
-console.log("NOTIFY: page comp changed", event);
-                                    fillComponentTrigger();
+//console.log("NOTIFY: page comp changed", event);
+                                    fillComponentTrigger()();
                                 });
                                 return component;
                             });
                         }
                     }).then(function () {
+
+//console.log("  GOT ALL PAGE COMPONENTS!!", config.id);                            
+
                         return wiring.dataConsumer.ensureLoaded().then(function () {
                             wiring.dataConsumer.on("changed", function (event) {
 
@@ -350,18 +365,20 @@ console.log("NOTIFY: page comp changed", event);
                                 // The event comes in later as it may be debounced.
                                 if (event.time < dataFetchedTime) {
 
-console.log("IGNORE: data consumer changed", event, dataFetchedTime);
+//console.log("IGNORE: data consumer changed", event, dataFetchedTime);
 
                                 } else {
-console.log("NOTIFY: data consumer changed", event, dataFetchedTime);
-                                    fillComponentTrigger();
+//console.log("NOTIFY: data consumer changed", event, dataFetchedTime);
+                                    fillComponentTrigger()();
                                 }
                             });
                             componentContext.on("changed", function () {
-console.log("NOTIFY: component context changed", event);
-                                fillComponentTrigger();
+//console.log("NOTIFY: component context changed", event);
+                                fillComponentTrigger()();
                             });
                         });
+                    }).then(function () {
+                        consumerReady = true;
                     });
                 }
 
@@ -385,9 +402,10 @@ console.log("NOTIFY: component context changed", event);
                         delete dataObject[name];
                     });
                     if (wiring.dataConsumer) {
+//console.log(" TRIGGER GET DATA for SYNC", config.id);                        
                         LIB._.assign(dataObject, wiring.dataConsumer.getData());
                         dataFetchedTime = Date.now();
-console.log("GET DATA!!", dataObject);                        
+//console.log(" ... got DATA!!", dataObject);                        
                     }
                 }
 
@@ -397,6 +415,7 @@ console.log("GET DATA!!", dataObject);
                     return LIB.Promise.try(function () {
                         if (!wiring.fill) return;
 
+//console.log(" TRIGGER SYNC DATA DUE TO FILL", config.id);                        
                         syncData();
 
                         // TODO: Make sure 'dataObject' records serialize properly.
@@ -422,10 +441,11 @@ console.log("GET DATA!!", dataObject);
                 
 
                 function renderComponentOverrideTemplate () {
-console.log("render comp override", config.id);                            
+//console.log("render comp override START", config.id);                            
 
                     function getTemplateControllingData () {
                         return LIB.Promise.try(function () {
+//console.log(" TRIGGER SYNC DATA DUE TO getTemplateControllingData", config.id);                        
                             syncData();
                             if (!wiring.getTemplateData) {
                                 return dataObject;
@@ -456,7 +476,7 @@ console.log("render comp override", config.id);
                                 };
                               }
                             }
-console.log("trigger after render", config.id);       
+//console.log("trigger after render", config.id);       
 
 
                             return wiring.afterRender.call(
@@ -470,12 +490,16 @@ console.log("trigger after render", config.id);
                     return getTemplateControllingData().then(function (data) {
                         template.render(data);
                         return afterRender(data);
+                    }).then(function () {
+
+//console.log("render comp override DONE", config.id);                            
+                        
                     });
                 }
 
                 function syncComponentOverrideTemplate () {
 
-console.log("SYNC COMPONENT!");                    
+//console.log("SYNC COMPONENT!", config.id);                    
                     return renderComponentOverrideTemplate();
                 }
 
@@ -502,11 +526,11 @@ console.log("SYNC COMPONENT!");
                 }
 
                 // First we fill the component with data
-                return ensureDataLoaded(
-                    componentOverrideTemplate ?
+                return ensureDataLoaded(function () {
+                    return componentOverrideTemplate ?
                         syncComponentOverrideTemplate :
                         fillComponent
-                ).then(function() {
+                }).then(function() {
                     renderWidget();
                 })
                 .then(function () {
@@ -541,6 +565,8 @@ console.log("SYNC COMPONENT!");
                         }
                         this.emit("destroy");
                     }
+                    
+                    component.api = componentContext.pageAPI;
 
                     context.registerComponentForActivePage(component);
 
