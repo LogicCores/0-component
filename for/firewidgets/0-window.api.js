@@ -334,6 +334,10 @@ exports.forLib = function (LIB) {
 
                 function ensureDataLoaded (_fillComponentTrigger) {
                     if (!wiring.dataConsumer) {
+                        componentContext.on("changed", function () {
+//console.log("NOTIFY: component context changed", event);
+                            _fillComponentTrigger()();
+                        });
                         return LIB.Promise.resolve();
                     }
                     var consumerReady = false;
