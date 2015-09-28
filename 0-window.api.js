@@ -90,6 +90,24 @@ exports.forLib = function (LIB) {
                 return state.componentScripts[alias];
             }
 
+
+            self.registerComponentForActivePage = function (component) {
+                if (!state.componentsForPages[contexts.page.getPath()]) {
+                    state.componentsForPages[contexts.page.getPath()] = {};
+                }
+                state.componentsForPages[contexts.page.getPath()][component.id] = component;
+                component.once("destroy", function () {
+                    delete state.componentsForPages[contexts.page.getPath()];
+                });
+            }
+            self.getComponentForActivePage = function (id) {
+                if (!state.componentsForPages[contexts.page.getPath()]) {
+                    return null;
+                }
+                return state.componentsForPages[contexts.page.getPath()][id];
+            }
+
+/*
             self.registerComponentForActivePage = function (component) {
                 if (!state.componentsForPages[contexts.page.getPath()]) {
                     state.componentsForPages[contexts.page.getPath()] = {};
@@ -111,6 +129,8 @@ exports.forLib = function (LIB) {
                 }
                 return state.componentsForPages[contexts.page.getPath()][id].promise;
             }
+*/
+
         }
         Context.prototype = Object.create(LIB.EventEmitter.prototype);
         Context.prototype.contexts = contexts;
