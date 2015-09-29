@@ -107,6 +107,15 @@ exports.forLib = function (LIB) {
                 return state.componentsForPages[contexts.page.getPath()][id];
             }
 
+            self.getComponentIdsForPrefixForActivePage = function (prefix) {
+                if (!state.componentsForPages[contexts.page.getPath()]) {
+                    return null;
+                }
+                return Object.keys(state.componentsForPages[contexts.page.getPath()]).filter(function (id) {
+                    return (id.substring(0, prefix.length) === prefix);
+                });
+            }
+
 /*
             self.registerComponentForActivePage = function (component) {
                 if (!state.componentsForPages[contexts.page.getPath()]) {

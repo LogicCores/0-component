@@ -198,34 +198,46 @@ exports.forLib = function (LIB) {
                             // TODO: Merge with config options before returning value at name/pointer
                             return state[name];
                         };
-                        self.set = function (name, value) {
+                        self.set = function (name, value, options) {
+                            options = options || {};
                             if (value === state[name]) return;
                             state[name] = value;
                             // TODO: Warn if value is too large or use alternative method to persist state.
                             localStorage.set(localStorageNamespace, JSON.stringify(state));
-                            // NOTE: This is needed to prevent rendering bugs in Semantic UI (e.g. dropdown)
-                            setTimeout(function () {
-                                self.emit("changed");
-                            }, 0);
+                            if (options.notifyChange !== false) {
+                                // NOTE: This is needed to prevent rendering bugs in Semantic UI (e.g. dropdown)
+                                setTimeout(function () {
+                                    self.emit("changed");
+                                }, 0);
+                            }
                         };
                         
                         // Enable this component to interact with other components on the page.
-                        self.getPageComponent = function (id) {
-                            
-                            // We attach a change listener to the component as we assume we are
-                            // dependent on it since we needed it to render the component.
-                            // TODO: Declare a more precise dependency in component config.
-                            if (!self.getPageComponent._listeners) {
-                                self.getPageComponent._listeners = {};
-                            }
+                        self.getPageComponent = function (id, options) {
+                            options = options || {};
                             var comp = context.getComponentForActivePage(id);
-                            if (!self.getPageComponent._listeners[id]) {
-                                self.getPageComponent._listeners[id] = function () {
-                                    self.emit("changed");
+                            if (options.watch === true) {
+                                // We attach a change listener to the component as we assume we are
+                                // dependent on it since we needed it to render the component.
+                                // TODO: Declare a more precise dependency in component config.
+                                if (!self.getPageComponent._listeners) {
+                                    self.getPageComponent._listeners = {};
                                 }
-                                comp.on("changed", self.getPageComponent._listeners[id]);
+                                if (!self.getPageComponent._listeners[id]) {
+                                    self.getPageComponent._listeners[id] = function () {
+                                        self.emit("changed");
+                                    }
+                                    comp.on("changed", self.getPageComponent._listeners[id]);
+                                }
                             }
                             return comp;
+                        }
+                        self.getPageComponentsForPrefix = function (prefix) {
+                            var components = {};
+                            context.getComponentIdsForPrefixForActivePage(prefix).forEach(function (id) {
+                                components[id] = self.getPageComponent(id);
+                            });
+                            return components;
                         }
 
                         // An API the component may expose for access by other components on the same page
@@ -246,11 +258,12 @@ exports.forLib = function (LIB) {
 
 
                         self.callServerAction = function (action, payload) {
-        
+
                             // TODO: Support different request formatters.
-        
+                            // TODO: Let mapper parse and act on response.
+
                             var uri = "/api/page" + context.contexts.page.getPath() + "/firewidgets/" + componentConfig.id + "/action";
-        
+
                             return context.contexts.adapters.request.window.postJSON(uri, {}, {
                                 action: action,
                                 payload: payload
@@ -271,12 +284,27 @@ exports.forLib = function (LIB) {
                     			            // TODO: Optionally just issue warning
                     			            throw new Error("Collection with name '" + collectionName + "' needed to store fetched data not found!");
                     			        }
-                            			collection.store.add(data.collections[collectionName], {
-                            			    merge: true
-                            			});
+                    			        var add = [];
+                    			        var remove = [];
+                    			        data.collections[collectionName].forEach(function (record) {
+                    			            if (Object.keys(record).length === 1) {
+                    			                remove.push(record);
+                    			            } else {
+                    			                record.id = parseInt(record.id);
+                    			                add.push(record);
+                    			            }
+                    			        });
+                    			        if (remove.length > 0) {
+                                			collection.store.remove(remove);
+                    			        }
+                    			        if (add.length > 0) {
+                                			collection.store.add(add, {
+                                			    merge: true
+                                			});
+                    			        }
                     			    });
                     		    }
-        
+
                     		    return data.result || null;
                     		});
                         }
@@ -534,7 +562,9 @@ exports.forLib = function (LIB) {
                                     //       This is needed especially when many sub-components are present.
                                     return "";
                                 }
+
                                 componentContext.template.render(dataObject);
+
                                 afterRender();
 
                             } else
@@ -573,12 +603,36 @@ exports.forLib = function (LIB) {
 							});
         			    }
 
-                        render();
-    			        initSubComponents();
-                        componentContext.on("changed", function onChange () {
+        			    function onChange () {
+        			        if (!onChange._queue) {
+        			            onChange._queue = [];
+        			        }
+        			        
+        			        function renderNextTransaction () {
+        			            var transaction = onChange._queue[0];
+                                render();
+            			        initSubComponents().then(function () {
+                                    onChange._queue.shift();
+                                    if (onChange._queue.length > 0) {
+                                        renderNextTransaction();
+                                    }
+    							});
+        			        }
+
+        			        // TODO: Pass along the transaction identifier for the dataset
+        			        //       that is being rendered.
+        			        // TODO: Allow cancelling the rendering of a transaction set if
+        			        //       a new one comes in.
+        			        onChange._queue.push(true);
+        			        if (onChange._queue.length === 1) {
+        			            renderNextTransaction();
+        			        }
+        			    }
+
+                        onChange();
+                        componentContext.on("changed", function () {
                             try {
-            			        render();
-            			        initSubComponents();
+                                onChange();
                             } catch (err) {
             			        console.error("Error rendering component '" + componentConfig.id + "' on change:", err.stack);
             			        throw err;
