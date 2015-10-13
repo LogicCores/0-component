@@ -162,19 +162,29 @@ exports.forLib = function (LIB) {
                         } else {
                             adapter = ADAPTER_JQUERY;
                         }
-    				    return handler(
-    				        componentConfig,
-    				        adapter,
-    				        context.getComponentForActivePage(componentConfig.id)
-    				    );
+    				    return LIB.Promise.try(function () {
+        				    return handler(
+        				        componentConfig,
+        				        adapter,
+        				        context.getComponentForActivePage(componentConfig.id)
+        				    );
+    				    });
     			    } catch (err) {
     			        return LIB.Promise.reject(err);
     			    }
     			}));
 			}
 
+			function loadComponents () {
+			    return forEachComponent(function (componentConfig, componentAdapter) {
+			        var impl = componentConfig.impl;
+			        if (!impl || impl === 'null') return;
+			        return context.firewidgets.loadImplementationForPointer(impl);
+			    });
+			}
 
-			function initComponent () {
+			function initComponents () {
+
 			    return forEachComponent(function (componentConfig, componentAdapter) {
 
                     var ComponentContext = function () {
@@ -256,13 +266,12 @@ exports.forLib = function (LIB) {
                         // TODO: Make immutable.
                         self.dataObject = {};
 
-
                         self.callServerAction = function (action, payload) {
 
                             // TODO: Support different request formatters.
                             // TODO: Let mapper parse and act on response.
 
-                            var uri = "/api/page" + context.contexts.page.getPath() + "/firewidgets/" + componentConfig.id + "/action";
+                            var uri = self.implAPI.resolveActionUri(context.contexts.page.getPath(), componentConfig.id, componentConfig.impl);
 
                             return context.contexts.adapters.request.window.postJSON(uri, {}, {
                                 action: action,
@@ -328,10 +337,59 @@ exports.forLib = function (LIB) {
                     // # Init Component Implementation
                     // ##############################
 
-                    // See if we are inheriting from a SEPARATELY LOADED component implementation
-                    var inheritedImplementation = (componentConfig.impl && context.getComponentInstanceFactory(componentConfig.impl)) || null;
+                    // See if we have a proper firewidget loaded
+                    var inheritedImplementation = (componentConfig.impl && context.firewidgets.getImplementationForPointer(componentConfig.impl)) || null;
                     if (inheritedImplementation) {
-                        LIB._.assign(componentContext.implAPI, new inheritedImplementation({}));
+
+                        var implAPI = inheritedImplementation.impl(componentContext);
+                        Object.keys(implAPI).forEach(function (apiContract) {
+                            // For now we attach all methods to the object.
+                            if (
+                                apiContract === "#chscript:redraw" ||
+                                apiContract === "#jquery"
+                            ) {
+                                Object.keys(implAPI[apiContract]).forEach(function (name) {
+                                    if (typeof implAPI[apiContract][name] === "function") {
+                                        componentContext.implAPI[name] = function () {
+                                            var args = Array.prototype.slice.call(arguments);
+                                            // Strip leading 'context' argument
+                                            if (
+                                                name === "getTemplateData" ||
+                                                name === "afterRender"
+                                            ) {
+                                                args.shift();
+                                            }
+                                            return implAPI[apiContract][name].apply(null, args);
+                                        };
+                                    } else {
+                                        componentContext.implAPI[name] = implAPI[apiContract][name];
+                                    }
+                                });
+                            } else {
+                                console.warn("Ignoring API contract '" + apiContract + "'");
+                            }
+                        });
+
+                        Object.keys(inheritedImplementation.impl).forEach(function (name) {
+                            if (typeof componentContext.implAPI[name] === "undefined") {
+                                componentContext.implAPI[name] = inheritedImplementation.impl[name];
+                            }
+                        });
+
+                    } else {
+// TODO: DEPRECATE once all components are loaded via proper firewidgets.
+                        // See if we are inheriting from a SEPARATELY LOADED component implementation
+                        inheritedImplementation = (componentConfig.impl && context.getComponentInstanceFactory(componentConfig.impl)) || null;
+                        if (inheritedImplementation) {
+                            LIB._.assign(componentContext.implAPI, new inheritedImplementation({}));
+                        }
+                    }
+                    
+                    componentContext.implAPI.resolveActionUri = componentContext.implAPI.resolveActionUri || function (pageUri, componentId) {
+                        return "/api/page" + pageUri + "/firewidgets/" + componentId + "/action";
+                    }
+                    componentContext.implAPI.resolveDataUri = componentContext.implAPI.resolveDataUri || function (pageUri, componentId) {
+                        return "/api/page" + pageUri + "/firewidgets/" + componentId + "/pointer";
                     }
 
                     // See if the page brought along any component implementation functions
@@ -363,6 +421,11 @@ exports.forLib = function (LIB) {
                         // 'componentContext.implAPI.templateChscript' now holds the inherited impl if it is there.
                         // If the inherited component implements the tempalte we use it.
                         // TODO: Pass template from page to inherited component to override or add section implementations.
+                        if (componentContext.implAPI.template) {
+                            componentContext.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
+                                componentContext.implAPI.template.getLayout()
+                            );
+                        } else
                         if (componentContext.implAPI.templateChscript) {
                             componentContext.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
                                 componentContext.implAPI.templateChscript.getLayout()
@@ -394,7 +457,7 @@ exports.forLib = function (LIB) {
                         var dataConsumer = new (context.contexts.adapters.data["ccjson.record.mapper"]).Consumer();
                         // TODO: Make congigurable
                         dataConsumer.setSourceBaseUrl(
-                            "/api/page" + context.contexts.page.getPath() + "/firewidgets/" + componentConfig.id + "/pointer"
+                            componentContext.implAPI.resolveDataUri(context.contexts.page.getPath(), componentConfig.id, componentConfig.impl)
                         );
                         dataConsumer.mapData(componentContext.implAPI.mapData(componentContext, dataConsumer));
 
@@ -646,15 +709,19 @@ exports.forLib = function (LIB) {
 			    });
 			}
 
-			// Setup components so they can reference each other.
-			return initComponent().then(function () {
+			// Load component implementations
+			return loadComponents().then(function () {
 
-    			// Load initial data for all components based on component state
-    			return loadData().then(function () {
-    			    
-    			    // Setup rendering and re-rendering of template after every state/data change.
-    			    return setupRendering();
-			    });
+    			// Setup components so they can reference each other.
+    			return initComponents().then(function () {
+
+        			// Load initial data for all components based on component state
+        			return loadData().then(function () {
+
+        			    // Setup rendering and re-rendering of template after every state/data change.
+        			    return setupRendering();
+    			    });
+    			});
 			});
         }
 							

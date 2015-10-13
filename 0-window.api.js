@@ -1,6 +1,10 @@
 
 exports.forLib = function (LIB) {
 
+    // TODO: Load and map this loading adapter dynamically.
+    const FIREWIDGETS_COMPONENT_ASPECT = require("../../0.FireWidgets/Aspects/component/window.plugin.js").forLib(LIB);
+    
+
     var exports = {};
 
     // TODO: Load adapters as needed on demand
@@ -56,6 +60,9 @@ exports.forLib = function (LIB) {
                 componentsForPages: {}
             };
             LIB._.merge(state, LIB._.cloneDeep(defaults));
+
+
+            self.firewidgets = FIREWIDGETS_COMPONENT_ASPECT.forContext(self);
 
 
             self.registerComponentInstanceFactory = function (alias, factory) {
