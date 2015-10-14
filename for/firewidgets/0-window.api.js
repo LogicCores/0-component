@@ -14,7 +14,15 @@ exports.forLib = function (LIB) {
     var exports = {};
 
     exports.spin = function (context) {
-    
+
+        // HACK: Remove conce components subscribe properly
+        var dataInitialized = new LIB.Promise(function (resolve, reject) {
+           context.contexts.data.once("initialized", resolve);
+           // TODO: Set timeout and trigger reject after 10 sec.
+        }).then(function () {
+            console.log("data initialized!");
+        });
+
         var FireWidgetsComponent = function () {
             var self = this;
         }
@@ -44,12 +52,25 @@ exports.forLib = function (LIB) {
                                         container({
                                             registerTemplate: function (impl) {
                                                 if (typeof impl.getScripts === "function") {
-                                                    impl.getScripts().forEach(function (scriptInfo) {
+                                                    
+                                                    var scripts = impl.getScripts();
+                                                    Object.keys(scripts).forEach(function (componentId) {
+                                                        if (!scripts[componentId].window) return;
+
+                                    			        context.firewidgets.registerImplementationForPage(
+                                    			            context.contexts.page.getPath(),
+                                    			            componentId,
+                                    			            scripts[componentId].window
+                                    			        );
+                                                    });
+/*
+                                                    scripts.forEach(function (scriptInfo) {
                                                         context.registerComponentScript(scriptInfo.id, new Function(
                                                             "context",
                                                             scriptInfo.code
                                                         ));
                                                     });
+*/
                                                 }
                                                 if (typeof impl.getComponents === "function") {
                                                     var components = impl.getComponents();
@@ -176,10 +197,15 @@ exports.forLib = function (LIB) {
 			}
 
 			function loadComponents () {
-			    return forEachComponent(function (componentConfig, componentAdapter) {
-			        var impl = componentConfig.impl;
-			        if (!impl || impl === 'null') return;
-			        return context.firewidgets.loadImplementationForPointer(impl);
+			    function waitForDataInitialization () {
+			        return dataInitialized;
+			    }
+			    return waitForDataInitialization().then(function () {
+    			    return forEachComponent(function (componentConfig, componentAdapter) {
+    			        var impl = componentConfig.impl;
+    			        if (!impl || impl === 'null') return;
+    			        return context.firewidgets.loadImplementationForPointer(impl);
+    			    });
 			    });
 			}
 
@@ -359,7 +385,7 @@ exports.forLib = function (LIB) {
                                             ) {
                                                 args.shift();
                                             }
-                                            return implAPI[apiContract][name].apply(null, args);
+                                            return implAPI[apiContract][name].apply(this, args);
                                         };
                                     } else {
                                         componentContext.implAPI[name] = implAPI[apiContract][name];
@@ -369,12 +395,13 @@ exports.forLib = function (LIB) {
                                 console.warn("Ignoring API contract '" + apiContract + "'");
                             }
                         });
-
+                        
                         Object.keys(inheritedImplementation.impl).forEach(function (name) {
                             if (typeof componentContext.implAPI[name] === "undefined") {
                                 componentContext.implAPI[name] = inheritedImplementation.impl[name];
                             }
                         });
+                        
 
                     } else {
 // TODO: DEPRECATE once all components are loaded via proper firewidgets.
@@ -384,29 +411,65 @@ exports.forLib = function (LIB) {
                             LIB._.assign(componentContext.implAPI, new inheritedImplementation({}));
                         }
                     }
-                    
-                    componentContext.implAPI.resolveActionUri = componentContext.implAPI.resolveActionUri || function (pageUri, componentId) {
-                        return "/api/page" + pageUri + "/firewidgets/" + componentId + "/action";
+
+                    componentContext.implAPI.resolveActionUri = componentContext.implAPI.resolveActionUri || function (pageUri, componentId, componentImplId) {
+                        return "/cores/responder/0.FireWidgets/" +
+                            pageUri.replace(/^\//, "").replace(/\//g, "~") + "/" +
+                            componentId.replace(/\//g, "~") + "/" +
+                            componentImplId.replace(/^#0.FireWidgets\//, "").replace(/\//g, "~") + "/" +
+                            "action";
                     }
-                    componentContext.implAPI.resolveDataUri = componentContext.implAPI.resolveDataUri || function (pageUri, componentId) {
-                        return "/api/page" + pageUri + "/firewidgets/" + componentId + "/pointer";
+                    componentContext.implAPI.resolveDataUri = componentContext.implAPI.resolveDataUri || function (pageUri, componentId, componentImplId) {
+                        return "/cores/responder/0.FireWidgets/" +
+                            pageUri.replace(/^\//, "").replace(/\//g, "~") + "/" +
+                            componentId.replace(/\//g, "~") + "/" +
+                            componentImplId.replace(/^#0.FireWidgets\//, "").replace(/\//g, "~") + "/" +
+                            "data";
                     }
 
-                    // See if the page brought along any component implementation functions
-                    // These functions may override the one from the inherited implementation
-                    // TODO: Setup proper component inheritance with super access so page overrides
-                    //       can properly interact with inherited component.
-                    var pageImplementation = context.getComponentScript(componentConfig.id);
-                    if (pageImplementation) {
-                        try {
-                            pageImplementation({
-                                wireComponent: function (wiring) {
-                                    LIB._.assign(componentContext.implAPI, wiring);
-                                }
-                            });
-                        } catch (err) {
-                            console.error("Error wiring component using script:", err.stack);
-                            throw err;
+                    var pageImplAPI = context.firewidgets.getImplementationForPage(
+			            context.contexts.page.getPath(),
+			            componentConfig.id
+			        );
+			        if (pageImplAPI) {
+                        pageImplAPI = pageImplAPI.impl(componentContext);
+					    Object.keys(pageImplAPI["#chscript:redraw"]).forEach(function (name) {
+                            if (typeof pageImplAPI["#chscript:redraw"][name] === "function") {
+                                componentContext.implAPI[name] = function () {
+                                    var args = Array.prototype.slice.call(arguments);
+                                    // Strip leading 'context' argument
+                                    args.shift();
+                                    return pageImplAPI["#chscript:redraw"][name].apply(this, args);
+                                };
+                            } else {
+                                componentContext.implAPI[name] = pageImplAPI["#chscript:redraw"][name];
+                            }
+                        });
+                        /*
+						LIB.traverse(pageImplAPI["#chscript:redraw"]).forEach(function () {
+							if (typeof this.node === "function") {
+								LIB.traverse(componentContext.implAPI).set(this.path, this.node);
+							}
+						});
+					    */
+			        } else {
+    
+                        // See if the page brought along any component implementation functions
+                        // These functions may override the one from the inherited implementation
+                        // TODO: Setup proper component inheritance with super access so page overrides
+                        //       can properly interact with inherited component.
+                        var pageImplementation = context.getComponentScript(componentConfig.id);
+                        if (pageImplementation) {
+                            try {
+                                pageImplementation({
+                                    wireComponent: function (wiring) {
+                                        LIB._.assign(componentContext.implAPI, wiring);
+                                    }
+                                });
+                            } catch (err) {
+                                console.error("Error wiring component using script:", err.stack);
+                                throw err;
+                            }
                         }
                     }
 
