@@ -203,7 +203,9 @@ exports.forLib = function (LIB) {
 			    return waitForDataInitialization().then(function () {
     			    return forEachComponent(function (componentConfig, componentAdapter) {
     			        var impl = componentConfig.impl;
-    			        if (!impl || impl === 'null') return;
+    			        if (!impl || impl === 'null') {
+    			            return;
+    			        }
     			        return context.firewidgets.loadImplementationForPointer(impl);
     			    });
 			    });
@@ -212,11 +214,11 @@ exports.forLib = function (LIB) {
 			function initComponents () {
 
 			    return forEachComponent(function (componentConfig, componentAdapter) {
-
                     var ComponentContext = function () {
                         var self = this;
                         
                         self.id = componentConfig.id;
+                        self.descriptor = {};
 
 
                         // Locally persisted component state
@@ -252,6 +254,7 @@ exports.forLib = function (LIB) {
                         self.getPageComponent = function (id, options) {
                             options = options || {};
                             var comp = context.getComponentForActivePage(id);
+                            if (!comp) return null;
                             if (options.watch === true) {
                                 // We attach a change listener to the component as we assume we are
                                 // dependent on it since we needed it to render the component.
@@ -366,8 +369,10 @@ exports.forLib = function (LIB) {
                     // See if we have a proper firewidget loaded
                     var inheritedImplementation = (componentConfig.impl && context.firewidgets.getImplementationForPointer(componentConfig.impl)) || null;
                     if (inheritedImplementation) {
+                        
+                        LIB._.merge(componentContext.descriptor, inheritedImplementation.descriptor);
 
-                        var implAPI = inheritedImplementation.impl(componentContext);
+                        var implAPI = inheritedImplementation.newImplementationInstance(componentContext);
                         Object.keys(implAPI).forEach(function (apiContract) {
                             // For now we attach all methods to the object.
                             if (
@@ -380,6 +385,7 @@ exports.forLib = function (LIB) {
                                             var args = Array.prototype.slice.call(arguments);
                                             // Strip leading 'context' argument
                                             if (
+                                                name === "mapData" ||
                                                 name === "getTemplateData" ||
                                                 name === "afterRender"
                                             ) {
@@ -395,13 +401,12 @@ exports.forLib = function (LIB) {
                                 console.warn("Ignoring API contract '" + apiContract + "'");
                             }
                         });
-                        
+
                         Object.keys(inheritedImplementation.impl).forEach(function (name) {
                             if (typeof componentContext.implAPI[name] === "undefined") {
                                 componentContext.implAPI[name] = inheritedImplementation.impl[name];
                             }
                         });
-                        
 
                     } else {
 // TODO: DEPRECATE once all components are loaded via proper firewidgets.
@@ -432,19 +437,24 @@ exports.forLib = function (LIB) {
 			            componentConfig.id
 			        );
 			        if (pageImplAPI) {
-                        pageImplAPI = pageImplAPI.impl(componentContext);
-					    Object.keys(pageImplAPI["#chscript:redraw"]).forEach(function (name) {
-                            if (typeof pageImplAPI["#chscript:redraw"][name] === "function") {
-                                componentContext.implAPI[name] = function () {
-                                    var args = Array.prototype.slice.call(arguments);
-                                    // Strip leading 'context' argument
-                                    args.shift();
-                                    return pageImplAPI["#chscript:redraw"][name].apply(this, args);
-                                };
-                            } else {
-                                componentContext.implAPI[name] = pageImplAPI["#chscript:redraw"][name];
-                            }
-                        });
+
+                        LIB._.merge(componentContext.descriptor, pageImplAPI.descriptor);
+
+                        pageImplAPI = pageImplAPI.newImplementationInstance(componentContext);
+                        if (pageImplAPI["#chscript:redraw"]) {
+    					    Object.keys(pageImplAPI["#chscript:redraw"]).forEach(function (name) {
+                                if (typeof pageImplAPI["#chscript:redraw"][name] === "function") {
+                                    componentContext.implAPI[name] = function () {
+                                        var args = Array.prototype.slice.call(arguments);
+                                        // Strip leading 'context' argument
+                                        args.shift();
+                                        return pageImplAPI["#chscript:redraw"][name].apply(this, args);
+                                    };
+                                } else {
+                                    componentContext.implAPI[name] = pageImplAPI["#chscript:redraw"][name];
+                                }
+                            });
+                        }
                         /*
 						LIB.traverse(pageImplAPI["#chscript:redraw"]).forEach(function () {
 							if (typeof this.node === "function") {
@@ -511,32 +521,49 @@ exports.forLib = function (LIB) {
                     componentContext.template.attachDomNode(componentConfig.domNode);
 
 
-                    // ##############################
-                    // # Init Component Data Mapping
-                    // ##############################
-
-                    if (typeof componentContext.implAPI.mapData === "function") {
-                        // TODO: Make which adapter to use configurable when refactoring to use ccjson
-                        var dataConsumer = new (context.contexts.adapters.data["ccjson.record.mapper"]).Consumer();
-                        // TODO: Make congigurable
-                        dataConsumer.setSourceBaseUrl(
-                            componentContext.implAPI.resolveDataUri(context.contexts.page.getPath(), componentConfig.id, componentConfig.impl)
-                        );
-                        dataConsumer.mapData(componentContext.implAPI.mapData(componentContext, dataConsumer));
-
-                        dataConsumer.on("changed", function (event) {
-                            componentContext.emit("changed");
-                        });
-
-                        componentContext.implAPI.dataConsumer = dataConsumer;
+                    function ensureDepends () {
+                        if (
+                            !componentContext.descriptor ||
+                            !componentContext.descriptor["@depends"] ||
+                            !componentContext.descriptor["@depends"]["page.component"]
+                        ) return LIB.Promise.resolve();
+                        return LIB.Promise.all(componentContext.descriptor["@depends"]["page.component"].map(function (extendingComponentId) {
+                            console.log("Component '" + componentConfig.id + "' is waiting for component '" + extendingComponentId + "' to initialize");
+                            return context.getComponentForActivePageAsync(extendingComponentId).then(function () {
+                                console.log("Component '" + extendingComponentId + "' that component '" + componentConfig.id + "' is waiting for has initialize!");
+                            });
+                        }));
                     }
+                    
+                    return ensureDepends().then(function () {
 
-                    context.registerComponentForActivePage(componentContext);
+                        // ##############################
+                        // # Init Component Data Mapping
+                        // ##############################
+    
+                        if (typeof componentContext.implAPI.mapData === "function") {
+                            // TODO: Make which adapter to use configurable when refactoring to use ccjson
+                            var dataConsumer = new (context.contexts.adapters.data["ccjson.record.mapper"]).Consumer();
+                            // TODO: Make congigurable
+                            dataConsumer.setSourceBaseUrl(
+                                componentContext.implAPI.resolveDataUri(context.contexts.page.getPath(), componentConfig.id, componentConfig.impl)
+                            );
+                            dataConsumer.mapData(componentContext.implAPI.mapData(componentContext, dataConsumer));
+    
+                            dataConsumer.on("changed", function (event) {
+                                componentContext.emit("changed");
+                            });
+    
+                            componentContext.implAPI.dataConsumer = dataConsumer;
+                        }
 
-					context.contexts.container.once("destroy", function () {
-						componentContext.destroy();
-					});
-                    return;
+                        context.registerComponentForActivePage(componentContext);
+    
+    					context.contexts.container.once("destroy", function () {
+    						componentContext.destroy();
+    					});
+                        return;
+                    });
 			    });
 			}
 

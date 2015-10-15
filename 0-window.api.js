@@ -98,6 +98,7 @@ exports.forLib = function (LIB) {
             }
 
 
+            var registerComponentForActivePage_waiting = [];
             self.registerComponentForActivePage = function (component) {
                 if (!state.componentsForPages[contexts.page.getPath()]) {
                     state.componentsForPages[contexts.page.getPath()] = {};
@@ -106,12 +107,29 @@ exports.forLib = function (LIB) {
                 component.once("destroy", function () {
                     delete state.componentsForPages[contexts.page.getPath()];
                 });
+                if (registerComponentForActivePage_waiting[component.id]) {
+                    registerComponentForActivePage_waiting[component.id].forEach(function (deferred) {
+                        deferred.resolve(component);
+                    });
+                    registerComponentForActivePage_waiting[component.id] = [];
+                }
             }
             self.getComponentForActivePage = function (id) {
                 if (!state.componentsForPages[contexts.page.getPath()]) {
                     return null;
                 }
                 return state.componentsForPages[contexts.page.getPath()][id];
+            }
+            self.getComponentForActivePageAsync = function (id) {
+                if (!state.componentsForPages[contexts.page.getPath()]) {
+                    var deferred = LIB.Promise.defer();
+                    if (!registerComponentForActivePage_waiting[id]) {
+                        registerComponentForActivePage_waiting[id] = [];
+                    }
+                    registerComponentForActivePage_waiting[id].push(deferred);
+                    return deferred.promise;
+                }
+                return LIB.Promise.resolve(state.componentsForPages[contexts.page.getPath()][id]);
             }
 
             self.getComponentIdsForPrefixForActivePage = function (prefix) {
