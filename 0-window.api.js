@@ -61,6 +61,8 @@ exports.forLib = function (LIB) {
             };
             LIB._.merge(state, LIB._.cloneDeep(defaults));
 
+            self.config = defaults;
+
 
             self.firewidgets = FIREWIDGETS_COMPONENT_ASPECT.forContext(self);
 
