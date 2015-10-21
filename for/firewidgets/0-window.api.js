@@ -618,10 +618,38 @@ exports.forLib = function (LIB) {
                                 Object.keys(componentContext.dataObject).forEach(function (name) {
                                     delete componentContext.dataObject[name];
                                 });
+                                function flattenDataObject (dataObject) {
+                                    // We remove all 'get' indirection and return a plain JS / JSONifiable object
+                                    var data = LIB._.cloneDeep(dataObject);
+                                    LIB.traverse(data).forEach(function () {
+                                        // TODO: Flatten the various record types.
+        							    if (
+        							        typeof this.node === "object" &&
+        							        this.node.attributes &&
+        							        this.node.collection &&
+        							        this.node.collection._byId
+        							    ) {
+        							        this.parent.node[this.key] = {};
+                                            LIB._.assign(this.parent.node[this.key], this.node.attributes);
+        							    } else
+            							if (typeof this.node === "function") {
+            							    if (this.key === "get") {
+                                                delete this.parent.node.get;
+                                                LIB._.assign(this.parent.node, this.node("*"));
+            							    } else {
+// TODO: Only log in debug mode.
+//            							        console.log("Ignore function '" + this.key + "' at '" + this.path.join(".") + "' as we are only calling 'get' functions.");
+            							    }
+            							} else {
+//            								LIB.traverse(data).set(this.path, this.node);
+            							}
+            						});
+            						return data;
+                                }
                                 LIB._.assign(componentContext.dataObject, componentContext.implAPI.getTemplateData.call(
                                     null,
                                     componentContext,
-                                    dataObject
+                                    flattenDataObject(dataObject)
                                 ));
 			                } catch (err) {
 			                    console.error("Error getting latest data for component '" + componentConfig.id + "':", err.stack);
