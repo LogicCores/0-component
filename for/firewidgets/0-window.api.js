@@ -347,6 +347,22 @@ exports.forLib = function (LIB) {
                     		});
                         }
 
+                        self.getDataForPointer = function (pointer) {
+
+                            // TODO: Support different request and response formatters.
+
+                            var uri = self.implAPI.resolveDataUri(context.contexts.page.getPath(), componentConfig.id, componentConfig.impl) + "/" + pointer;
+
+                            return context.contexts.adapters.request.window.get(uri, {}).then(function(response) {
+                    			if (response.status !== 200) {
+                    				var err = new Error("Error making request to '" + uri + "'");
+                    				err.code = response.status;
+                    				throw err;
+                    			}
+                    			return response.json();
+                    		});
+                        }
+
                         self.destroy = function () {
                             if (self.implAPI.dataConsumer) {
                                 self.implAPI.dataConsumer.removeAllListeners();
@@ -566,10 +582,21 @@ exports.forLib = function (LIB) {
                     });
 			    });
 			}
-
+			
 			function loadData () {
 			    return forEachComponent(function (componentConfig, componentAdapter, componentContext) {
 			        return LIB.Promise.try(function () {
+
+			            if (typeof componentContext.implAPI.ensureData === "function") {
+			                return componentContext.implAPI.ensureData().then(function (data) {
+                                // Re-assign all data keys so anyone with already a reference to 'componentContext.dataObject' gets updates.
+                                Object.keys(componentContext.dataObject).forEach(function (name) {
+                                    delete componentContext.dataObject[name];
+                                });
+                                LIB._.assign(componentContext.dataObject, data);
+			                });
+			            }
+
                         if (!componentContext.implAPI.dataConsumer) {
                             return;
                         }
@@ -586,7 +613,7 @@ exports.forLib = function (LIB) {
 			                // NOTE: This is all SYNCHRONOUS! If you need to get data SYNC use a 'dataConsumer'
 			                try {
     			                if (componentContext.implAPI.dataConsumer) {
-                                    // Re-assign all data keys so anyone with already a reference gets updates.
+                                    // Re-assign all data keys so anyone with already a reference to 'componentContext.dataObject' gets updates.
                                     Object.keys(componentContext.dataObject).forEach(function (name) {
                                         delete componentContext.dataObject[name];
                                     });
@@ -613,7 +640,7 @@ exports.forLib = function (LIB) {
                                     return;
                                 }
 
-                                // Re-assign all data keys so anyone with already a reference gets updates.
+                                // Re-assign all data keys so anyone with already a reference to 'componentContext.dataObject' gets updates.
                                 var dataObject = LIB._.assign({}, componentContext.dataObject);
                                 Object.keys(componentContext.dataObject).forEach(function (name) {
                                     delete componentContext.dataObject[name];
