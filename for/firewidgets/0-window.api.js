@@ -278,6 +278,14 @@ exports.forLib = function (LIB) {
                             });
                             return components;
                         }
+                        
+                        self.getDomNode = function () {
+                            return componentConfig.domNode;
+                        }
+                        
+                        self.getPageContext = function () {
+                            return context.contexts.container.getPageContext();
+                        }
 
                         // An API the component may expose for access by other components on the same page
                         self.pageAPI = {};
@@ -748,6 +756,9 @@ exports.forLib = function (LIB) {
                                     componentContext.dataObject
                                 );
                             }
+
+                            context.emit("rendered:component", componentContext);
+
                             return;
                         }
 
