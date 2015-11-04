@@ -773,12 +773,29 @@ exports.forLib = function (LIB) {
 
                                 var dataObject = componentContext.dataObject;
 
-                                dataObject["$anchors"] = function (name) {
+                                dataObject["$anchors"] = dataObject["$anchors"] || function (name) {
+                                    if (
+                                        componentContext.implAPI.template &&
+                                        componentContext.implAPI.template.getComponents
+                                    ) {
+                                        var comps = componentContext.implAPI.template.getComponents();
+                                        if (comps[name]) {
+                                            return comps[name].buildVTree(
+                                                context.contexts.adapters.template.firewidgets.h,
+                                                // NOTE: We use the same controlling state as the parent component by default.
+                                                //       This allows for controlling sub-components within parent components
+                                                //       where sub-components do not need their own controlling implementation.
+                                                //       If sub-components are used elsewhere they can be associated with an implementation.
+                                                context.contexts.adapters.template.firewidgets.ch(dataObject)
+                                            );
+                                        }
+                                    }
                                     // TODO: Get sub-component to render itself by running the chscript and returning it.
                                     //       At the moment the DOM is parsed after the parent component has finished
                                     //       rendering to find the sub components and init them. This is slower
                                     //       and has more overhead that it would have if doing directly here.
                                     //       This is needed especially when many sub-components are present.
+                                    //       NOTE: The code above may partially fulfill this original requirement.
                                     return "";
                                 }
 
