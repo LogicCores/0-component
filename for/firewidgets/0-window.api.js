@@ -165,7 +165,7 @@ exports.forLib = function (LIB) {
             });
         }
 
-        FireWidgetsComponent.prototype.instanciateComponents = function (components) {
+        FireWidgetsComponent.prototype.instanciateComponents = function (components, parentDataObject) {
             var self = this;
 
 			// TODO: Refactor this to use 'cores/context' once ready. When that happens
@@ -302,6 +302,18 @@ exports.forLib = function (LIB) {
                         //       thus anyone with a reference will have access to the new data.
                         // TODO: Make immutable.
                         self.dataObject = {};
+                        if (parentDataObject) {
+                            LIB._.merge(self.dataObject, parentDataObject);
+                        }
+                        
+                        self.setData = function (data) {
+                            // Re-assign all data keys so anyone with already a reference to 'self.dataObject' gets updates.
+                            Object.keys(self.dataObject).forEach(function (name) {
+                                delete self.dataObject[name];
+                            });
+                            LIB._.merge(self.dataObject, data);
+                            self.emit("changed");
+                        }
 
                         self.callServerAction = function (action, payload) {
 
@@ -833,7 +845,7 @@ exports.forLib = function (LIB) {
                     		//       as the HTML gets destroyed on every render.
                     		// TODO: Cache component context and only re-initialize template rendering logic
                     		//       attached to the new dom node.
-							return self.instanciateComponents(components).catch(function (err) {
+							return self.instanciateComponents(components, componentContext.dataObject).catch(function (err) {
 								console.error("Error initializing sub-components:", err.stack);
 								throw err;
 							});
