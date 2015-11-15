@@ -457,14 +457,14 @@ exports.forLib = function (LIB) {
                         return "/cores/responder/0.FireWidgets/" +
                             pageUri.replace(/^\//, "").replace(/\//g, "~") + "/" +
                             componentId.replace(/\//g, "~") + "/" +
-                            componentImplId.replace(/^#0.FireWidgets\//, "").replace(/\//g, "~") + "/" +
+                            ((componentImplId && componentImplId.replace(/^#0.FireWidgets\//, "").replace(/\//g, "~")) || "") + "/" +
                             "action";
                     }
                     componentContext.implAPI.resolveDataUri = componentContext.implAPI.resolveDataUri || function (pageUri, componentId, componentImplId) {
                         return "/cores/responder/0.FireWidgets/" +
                             pageUri.replace(/^\//, "").replace(/\//g, "~") + "/" +
                             componentId.replace(/\//g, "~") + "/" +
-                            componentImplId.replace(/^#0.FireWidgets\//, "").replace(/\//g, "~") + "/" +
+                            ((componentImplId && componentImplId.replace(/^#0.FireWidgets\//, "").replace(/\//g, "~")) || "") + "/" +
                             "data";
                     }
 
