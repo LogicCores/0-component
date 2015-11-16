@@ -168,9 +168,11 @@ exports.forLib = function (LIB) {
         FireWidgetsComponent.prototype.instanciateComponents = function (components, parentDataObject) {
             var self = this;
 
+console.log("instanciateComponents()");
+
 			// TODO: Refactor this to use 'cores/context' once ready. When that happens
 			//       the 'cores/component' module (as most other cores) will be significantly restructured.
-			
+
 			function forEachComponent (handler) {
     			return LIB.Promise.all(Object.keys(components).map(function (componentId) {
     			    try {
@@ -239,13 +241,19 @@ exports.forLib = function (LIB) {
                         self.set = function (name, value, options) {
                             options = options || {};
                             if (value === state[name]) return;
+                            var valueBefore = state[name];
                             state[name] = value;
                             // TODO: Warn if value is too large or use alternative method to persist state.
                             localStorage.set(localStorageNamespace, JSON.stringify(state));
                             if (options.notifyChange !== false) {
                                 // NOTE: This is needed to prevent rendering bugs in Semantic UI (e.g. dropdown)
                                 setTimeout(function () {
-                                    self.emit("changed");
+                                    self.emit("changed", {
+                                        reason: "state",
+                                        component: self.id,
+                                        before: valueBefore,
+                                        after: state[name]
+                                    });
                                 }, 0);
                             }
                         };
@@ -263,8 +271,8 @@ exports.forLib = function (LIB) {
                                     self.getPageComponent._listeners = {};
                                 }
                                 if (!self.getPageComponent._listeners[id]) {
-                                    self.getPageComponent._listeners[id] = function () {
-                                        self.emit("changed");
+                                    self.getPageComponent._listeners[id] = function (event) {
+                                        self.emit("changed", event);
                                     }
                                     comp.on("changed", self.getPageComponent._listeners[id]);
                                 }
@@ -306,13 +314,55 @@ exports.forLib = function (LIB) {
                             LIB._.merge(self.dataObject, parentDataObject);
                         }
                         
-                        self.setData = function (data) {
+                        self.setData = function (data, skipNotify) {
+                            var dataBefore = {};
                             // Re-assign all data keys so anyone with already a reference to 'self.dataObject' gets updates.
                             Object.keys(self.dataObject).forEach(function (name) {
+                                dataBefore[name] = self.dataObject[name];
                                 delete self.dataObject[name];
                             });
-                            LIB._.merge(self.dataObject, data);
-                            self.emit("changed");
+
+                            function flattenDataObject (dataObject) {
+                                // We remove all 'get' indirection and return a plain JS / JSONifiable object
+                                var data = LIB._.cloneDeep(dataObject);
+                                LIB.traverse(data).forEach(function () {
+                                    // TODO: Flatten the various record types.
+    							    if (
+    							        typeof this.node === "object" &&
+    							        this.node.attributes &&
+    							        this.node.collection &&
+    							        this.node.collection._byId
+    							    ) {
+    							        this.parent.node[this.key] = {};
+                                        LIB._.assign(this.parent.node[this.key], this.node.attributes);
+    							    } else
+        							if (typeof this.node === "function") {
+        							    if (this.key === "get") {
+                                            delete this.parent.node.get;
+                                            LIB._.assign(this.parent.node, this.node("*"));
+        							    } else {
+// TODO: Only log in debug mode.
+//            							        console.log("Ignore function '" + this.key + "' at '" + this.path.join(".") + "' as we are only calling 'get' functions.");
+        							    }
+        							} else {
+//            								LIB.traverse(data).set(this.path, this.node);
+        							}
+        						});
+        						return data;
+                            }
+
+                            LIB._.assign(self.dataObject, flattenDataObject(data));
+console.log("setData() - SET NEW DATA!");
+                            if (skipNotify) {
+console.log("SKIP DATA NOTIFY!");                                
+                                return;
+                            }
+                            self.emit("changed", {
+                                reason: "data",
+                                component: self.id,
+                                before: dataBefore,
+                                after: self.dataObject
+                            });
                         }
 
                         self.callServerAction = function (action, payload) {
@@ -585,16 +635,20 @@ exports.forLib = function (LIB) {
                                 componentContext.implAPI.resolveDataUri(context.contexts.page.getPath(), componentConfig.id, componentConfig.impl)
                             );
                             dataConsumer.mapData(componentContext.implAPI.mapData(componentContext, dataConsumer));
-    
+
                             dataConsumer.on("changed", function (event) {
-                                componentContext.emit("changed");
+                                componentContext.emit("changed", {
+                                    reason: "data.consumer",
+                                    component: componentContext.id,
+                                    event: event
+                                });
                             });
-    
+
                             componentContext.implAPI.dataConsumer = dataConsumer;
                         }
 
                         context.registerComponentForActivePage(componentContext);
-    
+
     					context.contexts.container.once("destroy", function () {
     						componentContext.destroy();
     					});
@@ -609,11 +663,7 @@ exports.forLib = function (LIB) {
 
 			            if (typeof componentContext.implAPI.ensureData === "function") {
 			                return componentContext.implAPI.ensureData().then(function (data) {
-                                // Re-assign all data keys so anyone with already a reference to 'componentContext.dataObject' gets updates.
-                                Object.keys(componentContext.dataObject).forEach(function (name) {
-                                    delete componentContext.dataObject[name];
-                                });
-                                LIB._.assign(componentContext.dataObject, data);
+			                    componentContext.setData(data, true);
 			                });
 			            }
 
@@ -633,11 +683,7 @@ exports.forLib = function (LIB) {
 			                // NOTE: This is all SYNCHRONOUS! If you need to get data SYNC use a 'dataConsumer'
 			                try {
     			                if (componentContext.implAPI.dataConsumer) {
-                                    // Re-assign all data keys so anyone with already a reference to 'componentContext.dataObject' gets updates.
-                                    Object.keys(componentContext.dataObject).forEach(function (name) {
-                                        delete componentContext.dataObject[name];
-                                    });
-                                    LIB._.assign(componentContext.dataObject, componentContext.implAPI.dataConsumer.getData());
+    			                    componentContext.setData(componentContext.implAPI.dataConsumer.getData(), true);
     			                }
 /*
                             // TODO: Compare data objects to see if changed.
@@ -660,44 +706,12 @@ exports.forLib = function (LIB) {
                                     return;
                                 }
 
-                                // Re-assign all data keys so anyone with already a reference to 'componentContext.dataObject' gets updates.
-                                var dataObject = LIB._.assign({}, componentContext.dataObject);
-                                Object.keys(componentContext.dataObject).forEach(function (name) {
-                                    delete componentContext.dataObject[name];
-                                });
-                                function flattenDataObject (dataObject) {
-                                    // We remove all 'get' indirection and return a plain JS / JSONifiable object
-                                    var data = LIB._.cloneDeep(dataObject);
-                                    LIB.traverse(data).forEach(function () {
-                                        // TODO: Flatten the various record types.
-        							    if (
-        							        typeof this.node === "object" &&
-        							        this.node.attributes &&
-        							        this.node.collection &&
-        							        this.node.collection._byId
-        							    ) {
-        							        this.parent.node[this.key] = {};
-                                            LIB._.assign(this.parent.node[this.key], this.node.attributes);
-        							    } else
-            							if (typeof this.node === "function") {
-            							    if (this.key === "get") {
-                                                delete this.parent.node.get;
-                                                LIB._.assign(this.parent.node, this.node("*"));
-            							    } else {
-// TODO: Only log in debug mode.
-//            							        console.log("Ignore function '" + this.key + "' at '" + this.path.join(".") + "' as we are only calling 'get' functions.");
-            							    }
-            							} else {
-//            								LIB.traverse(data).set(this.path, this.node);
-            							}
-            						});
-            						return data;
-                                }
-                                LIB._.assign(componentContext.dataObject, componentContext.implAPI.getTemplateData.call(
+			                    componentContext.setData(componentContext.implAPI.getTemplateData.call(
                                     null,
                                     componentContext,
-                                    flattenDataObject(dataObject)
-                                ));
+                                    LIB._.assign({}, componentContext.dataObject)
+                                ), true);
+
 			                } catch (err) {
 			                    console.error("Error getting latest data for component '" + componentConfig.id + "':", err.stack);
 			                    throw err;
@@ -845,6 +859,9 @@ exports.forLib = function (LIB) {
                     		//       as the HTML gets destroyed on every render.
                     		// TODO: Cache component context and only re-initialize template rendering logic
                     		//       attached to the new dom node.
+
+console.log("init sub components");
+
 							return self.instanciateComponents(components, componentContext.dataObject).catch(function (err) {
 								console.error("Error initializing sub-components:", err.stack);
 								throw err;
@@ -859,7 +876,8 @@ exports.forLib = function (LIB) {
         			        function renderNextTransaction () {
         			            var transaction = onChange._queue[0];
                                 render();
-            			        initSubComponents().then(function () {
+            			        
+            			        return initSubComponents().then(function () {
                                     onChange._queue.shift();
                                     if (onChange._queue.length > 0) {
                                         renderNextTransaction();
@@ -873,12 +891,12 @@ exports.forLib = function (LIB) {
         			        //       a new one comes in.
         			        onChange._queue.push(true);
         			        if (onChange._queue.length === 1) {
-        			            renderNextTransaction();
+        			            return renderNextTransaction();
         			        }
         			    }
 
-                        onChange();
-                        componentContext.on("changed", function () {
+                        componentContext.on("changed", function (event) {
+                            console.info("COMPONENT CHANGED:", event);
                             try {
                                 onChange();
                             } catch (err) {
@@ -886,6 +904,7 @@ exports.forLib = function (LIB) {
             			        throw err;
                             }
         			    });
+                        return onChange();
 
 			        }).catch(function (err) {
     			        console.error("Error rendering component '" + componentConfig.id + "':", err.stack);
@@ -907,6 +926,11 @@ exports.forLib = function (LIB) {
         			    return setupRendering();
     			    });
     			});
+			}).then(function () {
+
+console.log("PAGE ALL DONE!!");
+
+			    
 			});
         }
 							
