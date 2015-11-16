@@ -10,6 +10,7 @@ exports.forLib = function (LIB) {
 
             self.id = componentConfig.id;
             self.implId = componentConfig.impl || "";
+            self.adapterId = componentConfig.adapterId;
 
             self.descriptor = {};
 
