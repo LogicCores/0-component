@@ -235,20 +235,20 @@ console.log("SKIP DATA NOTIFY!");
 
 
 
-        var components = {};
+        var cache = {};
 
         return {
             ComponentContext: ComponentContext,
-            getContextForKey: function (componentKey, componentConfig) {
-                if (!components[componentKey]) {
+            getForKey: function (componentKey, componentConfig) {
+                if (!cache[componentKey]) {
 //console.info("Init new component context for key '" + componentKey + "':", componentConfig);
-                    components[componentKey] = new ComponentContext(componentConfig);
+                    cache[componentKey] = new ComponentContext(componentConfig);
                 } else {
 //console.log("Use existing component context for key:", componentKey);
                     // NOTE: We assume the 'componentConfig' has NOT changed!
                     // TODO: Update ComponentContext if 'componentConfig' has changed or create new ComponentContext?
                 }
-                return components[componentKey];
+                return cache[componentKey];
             }
         };
     }

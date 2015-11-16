@@ -17,6 +17,7 @@ exports.forLib = function (LIB) {
 
 
         const COMPONENT_CONTEXT = require("./context").forLib(LIB).spin(context);
+        const COMPONENT = require("./component").forLib(LIB).spin(context);
 
 
         // HACK: Remove conce components subscribe properly
@@ -224,15 +225,18 @@ console.log("instanciateComponents()");
 
                     var componentKey = context.contexts.page.getPath().replace(/^\//, "").replace(/\//g, "~") + ":" + componentConfig.id;
 
-                    var componentContext = COMPONENT_CONTEXT.getContextForKey(componentKey, componentConfig);
+                    var componentContext = COMPONENT_CONTEXT.getForKey(componentKey, componentConfig);
+console.info("### GOT componentContext", componentContext);
 
 
-console.log("componentContext", componentContext);
+                    var component = COMPONENT.getForKey(componentKey, componentContext);
+console.info("### GOT component", component);
 
 
                     if (parentDataObject) {
                         componentContext.setData(parentDataObject, true);
                     }
+
 
 
                     // ##############################
