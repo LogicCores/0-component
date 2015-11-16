@@ -221,9 +221,14 @@ console.log("instanciateComponents()");
 
 			    return forEachComponent(function (componentConfig, componentAdapter) {
 
-                    // TODO: Get existing component context based on page + component ID
 
-                    var componentContext = new COMPONENT_CONTEXT.ComponentContext(componentConfig);
+                    var componentKey = context.contexts.page.getPath().replace(/^\//, "").replace(/\//g, "~") + ":" + componentConfig.id;
+
+                    var componentContext = COMPONENT_CONTEXT.getContextForKey(componentKey, componentConfig);
+
+
+console.log("componentContext", componentContext);
+
 
                     if (parentDataObject) {
                         componentContext.setData(parentDataObject, true);
@@ -235,7 +240,7 @@ console.log("instanciateComponents()");
                     // ##############################
 
                     // See if we have a proper firewidget loaded
-                    var inheritedImplementation = (componentConfig.impl && context.firewidgets.getImplementationForPointer(componentConfig.impl)) || null;
+                    var inheritedImplementation = (componentContext.implId && context.firewidgets.getImplementationForPointer(componentContext.implId)) || null;
                     if (inheritedImplementation) {
                         
                         LIB._.merge(componentContext.descriptor, inheritedImplementation.descriptor);
@@ -279,7 +284,7 @@ console.log("instanciateComponents()");
                     } else {
 // TODO: DEPRECATE once all components are loaded via proper firewidgets.
                         // See if we are inheriting from a SEPARATELY LOADED component implementation
-                        inheritedImplementation = (componentConfig.impl && context.getComponentInstanceFactory(componentConfig.impl)) || null;
+                        inheritedImplementation = (componentContext.implId && context.getComponentInstanceFactory(componentContext.implId)) || null;
                         if (inheritedImplementation) {
                             LIB._.assign(componentContext.implAPI, new inheritedImplementation({}));
                         }
@@ -302,7 +307,7 @@ console.log("instanciateComponents()");
 
                     var pageImplAPI = context.firewidgets.getImplementationForPage(
 			            context.contexts.page.getPath(),
-			            componentConfig.id
+			            componentContext.id
 			        );
 			        if (pageImplAPI) {
 
@@ -336,7 +341,7 @@ console.log("instanciateComponents()");
                         // These functions may override the one from the inherited implementation
                         // TODO: Setup proper component inheritance with super access so page overrides
                         //       can properly interact with inherited component.
-                        var pageImplementation = context.getComponentScript(componentConfig.id);
+                        var pageImplementation = context.getComponentScript(componentContext.id);
                         if (pageImplementation) {
                             try {
                                 pageImplementation({
@@ -373,7 +378,7 @@ console.log("instanciateComponents()");
                             );
                         } else {
                             // If the page declares a template use it that.
-                            var pageOverrideTemplate = context.getComponentOverrideTemplateForActivePage(componentConfig.id);
+                            var pageOverrideTemplate = context.getComponentOverrideTemplateForActivePage(componentContext.id);
                             if (typeof pageOverrideTemplate.buildVTree === "function") {
                                 componentContext.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(pageOverrideTemplate);
                             } else {
@@ -396,9 +401,9 @@ console.log("instanciateComponents()");
                             !componentContext.descriptor["@depends"]["page.component"]
                         ) return LIB.Promise.resolve();
                         return LIB.Promise.all(componentContext.descriptor["@depends"]["page.component"].map(function (extendingComponentId) {
-                            console.log("Component '" + componentConfig.id + "' is waiting for component '" + extendingComponentId + "' to initialize");
+                            console.log("Component '" + componentContext.id + "' is waiting for component '" + extendingComponentId + "' to initialize");
                             return context.getComponentForActivePageAsync(extendingComponentId).then(function () {
-                                console.log("Component '" + extendingComponentId + "' that component '" + componentConfig.id + "' is waiting for has initialize!");
+                                console.log("Component '" + extendingComponentId + "' that component '" + componentContext.id + "' is waiting for has initialize!");
                             });
                         }));
                     }
@@ -414,7 +419,7 @@ console.log("instanciateComponents()");
                             var dataConsumer = new (context.contexts.adapters.data["ccjson.record.mapper"]).Consumer();
                             // TODO: Make congigurable
                             dataConsumer.setSourceBaseUrl(
-                                componentContext.implAPI.resolveDataUri(context.contexts.page.getPath(), componentConfig.id, componentConfig.impl)
+                                componentContext.implAPI.resolveDataUri(context.contexts.page.getPath(), componentContext.id, componentContext.implId)
                             );
                             dataConsumer.mapData(componentContext.implAPI.mapData(componentContext, dataConsumer));
 
@@ -495,7 +500,7 @@ console.log("instanciateComponents()");
                                 ), true);
 
 			                } catch (err) {
-			                    console.error("Error getting latest data for component '" + componentConfig.id + "':", err.stack);
+			                    console.error("Error getting latest data for component '" + componentContext.id + "':", err.stack);
 			                    throw err;
 			                }
 			            }
@@ -682,14 +687,14 @@ console.log("init sub components");
                             try {
                                 onChange();
                             } catch (err) {
-            			        console.error("Error rendering component '" + componentConfig.id + "' on change:", err.stack);
+            			        console.error("Error rendering component '" + componentContext.id + "' on change:", err.stack);
             			        throw err;
                             }
         			    });
                         return onChange();
 
 			        }).catch(function (err) {
-    			        console.error("Error rendering component '" + componentConfig.id + "':", err.stack);
+    			        console.error("Error rendering component '" + componentContext.id + "':", err.stack);
     			        throw err;
 			        });
 			    });

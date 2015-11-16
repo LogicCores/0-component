@@ -7,8 +7,10 @@ exports.forLib = function (LIB) {
 
         var ComponentContext = function (componentConfig) {
             var self = this;
-            
+
             self.id = componentConfig.id;
+            self.implId = componentConfig.impl || "";
+
             self.descriptor = {};
 
 
@@ -232,8 +234,22 @@ console.log("SKIP DATA NOTIFY!");
         ComponentContext.prototype.contexts = context.contexts;
 
 
+
+        var components = {};
+
         return {
-            ComponentContext: ComponentContext
+            ComponentContext: ComponentContext,
+            getContextForKey: function (componentKey, componentConfig) {
+                if (!components[componentKey]) {
+//console.info("Init new component context for key '" + componentKey + "':", componentConfig);
+                    components[componentKey] = new ComponentContext(componentConfig);
+                } else {
+//console.log("Use existing component context for key:", componentKey);
+                    // NOTE: We assume the 'componentConfig' has NOT changed!
+                    // TODO: Update ComponentContext if 'componentConfig' has changed or create new ComponentContext?
+                }
+                return components[componentKey];
+            }
         };
     }
 
