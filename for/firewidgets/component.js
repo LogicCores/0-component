@@ -8,6 +8,11 @@ exports.forLib = function (LIB) {
         var Component = function (componentContext) {
             var self = this;
 
+            self.id = componentContext.id;
+            self.context = componentContext;
+
+            self.template = null;
+
 
             // ##############################
             // # Init Component Implementation
@@ -142,26 +147,26 @@ exports.forLib = function (LIB) {
                 // If the inherited component implements the tempalte we use it.
                 // TODO: Pass template from page to inherited component to override or add section implementations.
                 if (componentContext.implAPI.template) {
-                    componentContext.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
+                    self.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
                         componentContext.implAPI.template.getLayout()
                     );
                 } else
                 if (componentContext.implAPI.templateChscript) {
-                    componentContext.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
+                    self.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
                         componentContext.implAPI.templateChscript.getLayout()
                     );
                 } else {
                     // If the page declares a template use it that.
                     var pageOverrideTemplate = context.getComponentOverrideTemplateForActivePage(componentContext.id);
                     if (typeof pageOverrideTemplate.buildVTree === "function") {
-                        componentContext.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(pageOverrideTemplate);
+                        self.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(pageOverrideTemplate);
                     } else {
                         throw new Error("Did not find 'buildVTree()' in 'pageOverrideTemplate'!");
                     }
                 }
             } else
             if (componentContext.adapterId === "jquery") {
-                componentContext.template = new context.contexts.adapters.template.firewidgets.jQueryTemplate();
+                self.template = new context.contexts.adapters.template.firewidgets.jQueryTemplate();
             } else {
                 throw new Error("Unknown component adapter API '" + componentContext.adapterId + "'");
             }
@@ -178,10 +183,10 @@ exports.forLib = function (LIB) {
             Component: Component,
             getForKey: function (componentKey, componentContext) {
                 if (!cache[componentKey]) {
-console.info("Init new component for key '" + componentKey + "':", componentContext);
+//console.info("Init new component for key '" + componentKey + "':", componentContext);
                     cache[componentKey] = new Component(componentContext);
                 } else {
-console.log("Use existing component for key:", componentKey);
+//console.log("Use existing component for key:", componentKey);
                     // NOTE: We assume the 'componentConfig' has NOT changed!
                     // TODO: Update ComponentContext if 'componentConfig' has changed or create new ComponentContext?
                 }

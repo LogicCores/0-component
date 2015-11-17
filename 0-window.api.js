@@ -106,7 +106,7 @@ exports.forLib = function (LIB) {
                     state.componentsForPages[contexts.page.getPath()] = {};
                 }
                 state.componentsForPages[contexts.page.getPath()][component.id] = component;
-                component.once("destroy", function () {
+                component.context.once("destroy", function () {
                     delete state.componentsForPages[contexts.page.getPath()];
                 });
                 if (registerComponentForActivePage_waiting[component.id]) {

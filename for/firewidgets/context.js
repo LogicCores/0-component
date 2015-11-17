@@ -66,10 +66,10 @@ exports.forLib = function (LIB) {
                         self.getPageComponent._listeners[id] = function (event) {
                             self.emit("changed", event);
                         }
-                        comp.on("changed", self.getPageComponent._listeners[id]);
+                        comp.context.on("changed", self.getPageComponent._listeners[id]);
                     }
                 }
-                return comp;
+                return comp.context;
             }
             self.getPageComponentsForPrefix = function (prefix) {
                 var components = {};
