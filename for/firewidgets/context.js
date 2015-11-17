@@ -15,6 +15,14 @@ exports.forLib = function (LIB) {
             self.descriptor = {};
 
 
+            self.container = componentConfig.container;
+
+
+			self.container.once("destroy", function () {
+				self.destroy();
+			});
+
+
             // Locally persisted component state
             var state = {};
             var localStorage = context.contexts.adapters.cache.localStorage;
@@ -78,13 +86,13 @@ exports.forLib = function (LIB) {
                 });
                 return components;
             }
-            
+
             self.getDomNode = function () {
                 return componentConfig.domNode;
             }
-            
+
             self.getPageContext = function () {
-                return context.contexts.container.getPageContext();
+                return self.container.getPageContext();
             }
 
             // An API the component may expose for access by other components on the same page
@@ -142,9 +150,8 @@ exports.forLib = function (LIB) {
                 }
 
                 LIB._.assign(self.dataObject, flattenDataObject(data));
-console.log("setData() - SET NEW DATA!");
+
                 if (skipNotify) {
-console.log("SKIP DATA NOTIFY!");                                
                     return;
                 }
                 self.emit("changed", {

@@ -124,7 +124,13 @@ exports.forLib = function (LIB) {
             }
             self.getComponentForActivePageAsync = function (id) {
                 if (!state.componentsForPages[contexts.page.getPath()]) {
-                    var deferred = LIB.Promise.defer();
+
+                    var deferred = {};
+                    deferred.promise = new LIB.Promise(function (resolve, reject) {
+                        deferred.resolve = resolve;
+                        deferred.reject = reject;
+                    });
+
                     if (!registerComponentForActivePage_waiting[id]) {
                         registerComponentForActivePage_waiting[id] = [];
                     }

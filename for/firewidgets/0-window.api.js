@@ -21,12 +21,19 @@ exports.forLib = function (LIB) {
 
 
         // HACK: Remove conce components subscribe properly
-        var dataInitialized = new LIB.Promise(function (resolve, reject) {
-           context.contexts.data.once("initialized", resolve);
-           // TODO: Set timeout and trigger reject after 10 sec.
+        // TODO: Set timeout and trigger reject after 10 sec.
+        var dataInitialized = {};
+        dataInitialized.promise = new LIB.Promise(function (resolve, reject) {
+            dataInitialized.resolve = resolve;
+            dataInitialized.reject = reject;
         }).then(function () {
             console.log("data initialized!");
+            return null;
         });
+        context.contexts.data.once("initialized", function () {
+            dataInitialized.resolve(null);
+        });
+
 
         var FireWidgetsComponent = function () {
             var self = this;
@@ -173,8 +180,6 @@ exports.forLib = function (LIB) {
         FireWidgetsComponent.prototype.instanciateComponents = function (components, parentDataObject) {
             var self = this;
 
-console.log("instanciateComponents()");
-
 			// TODO: Refactor this to use 'cores/context' once ready. When that happens
 			//       the 'cores/component' module (as most other cores) will be significantly restructured.
 
@@ -206,10 +211,10 @@ console.log("instanciateComponents()");
 			}
 
 			function loadComponents () {
-			    function waitForDataInitialization () {
-			        return dataInitialized;
-			    }
-			    return waitForDataInitialization().then(function () {
+			    return LIB.Promise.try(function () {
+    			    return dataInitialized.promise;
+			    }).then(function () {
+
     			    return forEachComponent(function (componentConfig) {
     			        var impl = componentConfig.impl;
     			        if (!impl || impl === 'null') {
@@ -224,72 +229,22 @@ console.log("instanciateComponents()");
 
 			    return forEachComponent(function (componentConfig) {
 
-
                     var componentKey = context.contexts.page.getPath().replace(/^\//, "").replace(/\//g, "~") + ":" + componentConfig.id;
 
                     var componentContext = COMPONENT_CONTEXT.getForKey(componentKey, componentConfig);
-console.info("### GOT componentContext", componentContext);
 
 
                     var component = COMPONENT.getForKey(componentKey, componentContext);
-console.info("### GOT component", component);
 
 
                     if (parentDataObject) {
-console.log("SET PARENT DATA!!!!");
                         component.context.setData(parentDataObject, true);
                     }
-
-
-                    component.template.attachDomNode(componentConfig.domNode);
-
-
-                    function ensureDepends () {
-                        if (
-                            !component.context.descriptor ||
-                            !component.context.descriptor["@depends"] ||
-                            !component.context.descriptor["@depends"]["page.component"]
-                        ) return LIB.Promise.resolve();
-                        return LIB.Promise.all(component.context.descriptor["@depends"]["page.component"].map(function (extendingComponentId) {
-                            console.log("Component '" + component.context.id + "' is waiting for component '" + extendingComponentId + "' to initialize");
-                            return context.getComponentForActivePageAsync(extendingComponentId).then(function () {
-                                console.log("Component '" + extendingComponentId + "' that component '" + component.context.id + "' is waiting for has initialize!");
-                            });
-                        }));
-                    }
                     
-                    return ensureDepends().then(function () {
 
-                        // ##############################
-                        // # Init Component Data Mapping
-                        // ##############################
-    
-                        if (typeof component.context.implAPI.mapData === "function") {
-                            // TODO: Make which adapter to use configurable when refactoring to use ccjson
-                            var dataConsumer = new (context.contexts.adapters.data["ccjson.record.mapper"]).Consumer();
-                            // TODO: Make congigurable
-                            dataConsumer.setSourceBaseUrl(
-                                component.context.implAPI.resolveDataUri(context.contexts.page.getPath(), component.context.id, component.context.implId)
-                            );
-                            dataConsumer.mapData(component.context.implAPI.mapData(component.context, dataConsumer));
+                    return component.ensureInitialized().then(function () {
 
-                            dataConsumer.on("changed", function (event) {
-                                component.context.emit("changed", {
-                                    reason: "data.consumer",
-                                    component: component.context.id,
-                                    event: event
-                                });
-                            });
-
-                            component.context.implAPI.dataConsumer = dataConsumer;
-                        }
-
-                        context.registerComponentForActivePage(component);
-
-    					context.contexts.container.once("destroy", function () {
-    						component.context.destroy();
-    					});
-                        return;
+                        return component;
                     });
 			    });
 			}
@@ -316,235 +271,16 @@ console.log("SET PARENT DATA!!!!");
 			    return forEachComponent(function (componentConfig, component) {
 			        return LIB.Promise.try(function () {
 
-			            function syncLatestData () {
-			                // NOTE: This is all SYNCHRONOUS! If you need to get data SYNC use a 'dataConsumer'
-			                try {
-    			                if (component.context.implAPI.dataConsumer) {
-    			                    component.context.setData(component.context.implAPI.dataConsumer.getData(), true);
-    			                }
-/*
-                            // TODO: Compare data objects to see if changed.
-                            // TODO: Compare state to see if changed.
-                            // TODO: Make sure 'dataObject' records serialize properly for comparison.
-                            if (fillComponent._previousDataObject) {
-                                // TODO: Make 'dataObject immutable and compute checksum so we can compare checksums'
-                                if (JSON.stringify(component.context.dataObject) === fillComponent._previousDataObject) {
-                                    // We do not fill as data has not changed.
-                                    // State changes should be handled in the markup callback.
-                                    return;
-                                }
+
+                        return component.ensureRenderer({
+                            instanciateSubComponents: function (components, parentDataObject) {
+                                return self.instanciateComponents(components, parentDataObject);
                             }
-                            fillComponent._previousDataObject = JSON.stringify(component.context.dataObject);
-*/
-                                if (
-                                    !component.context.implAPI.getTemplateData ||
-                                    component.context.adapterId !== "chscript"
-                                ) {
-                                    return;
-                                }
+                        });
 
-			                    component.context.setData(component.context.implAPI.getTemplateData.call(
-                                    null,
-                                    component.context,
-                                    LIB._.assign({}, component.context.dataObject)
-                                ), true);
-
-			                } catch (err) {
-			                    console.error("Error getting latest data for component '" + component.context.id + "':", err.stack);
-			                    throw err;
-			                }
-			            }
-
-                        // Called every time data CHANGES
-                        function fill () {
-                            if (!component.context.implAPI.fill) return;
-                            if (!fill._helpers) {
-                                fill._helpers = {};
-                                var templateComponentHelpers = component.template.getComponentHelpers();
-                                Object.keys(templateComponentHelpers).forEach(function (name) {
-                                    fill._helpers[name] = function () {
-                                        var args = Array.prototype.slice.call(arguments);
-                                        args.unshift(component.context);
-                                        return templateComponentHelpers[name].apply(null, args);
-                                    }
-                                });
-                            }
-                            component.context.implAPI.fill.call(
-                                fill._helpers,
-                                component.context,
-                                componentConfig.domNode,
-                                component.context.dataObject
-                            );
-                            return;
-                        }
-
-                        // Called ONCE
-                        function markup () {
-                            if (!component.context.implAPI.markup) return;
-
-                            // We only markup once
-                            if (markup._didMarkup) return;
-                            markup._didMarkup = true;
-
-                            component.context.implAPI.markup(
-                                component.context,
-                                componentConfig.domNode,
-                                component.context.dataObject
-                            );
-                            return;
-                        }
-
-                        function afterRender () {
-                            if (!afterRender._helpers) {
-                                afterRender._helpers = {
-                                    findActionableNode: function (target) {
-                                        var elm = $(target);
-                                        if (elm.length === 0) return null;
-                                        var action = elm.attr("data-component-action");
-                                        if (!action) {
-                                            return afterRender._helpers.findActionableNode(elm.parent());
-                                        }
-                                        return {
-                                            action: action,
-                                            id: elm.attr("data-id")
-                                        };
-                                    }
-                                };
-                            }
-                            if (component.context.implAPI.afterRender) {
-                                component.context.implAPI.afterRender.call(
-                                    afterRender._helpers,
-                                    component.context,
-                                    componentConfig.domNode,
-                                    component.context.dataObject
-                                );
-                            }
-
-                            context.emit("rendered:component", component.context);
-
-                            return;
-                        }
-
-                        function render () {
-
-                			// We render SYNCHRONOUSLY as all data should be ready now
-                			// When new data comes in we re-render.
-
-                            syncLatestData();
-
-                            if (component.context.adapterId === "chscript") {
-
-                                var dataObject = component.context.dataObject;
-
-                                dataObject["$anchors"] = dataObject["$anchors"] || function (name) {
-                                    if (
-                                        component.context.implAPI.template &&
-                                        component.context.implAPI.template.getComponents
-                                    ) {
-                                        var comps = component.context.implAPI.template.getComponents();
-                                        if (comps[name]) {
-                                            return comps[name].buildVTree(
-                                                context.contexts.adapters.template.firewidgets.h,
-                                                // NOTE: We use the same controlling state as the parent component by default.
-                                                //       This allows for controlling sub-components within parent components
-                                                //       where sub-components do not need their own controlling implementation.
-                                                //       If sub-components are used elsewhere they can be associated with an implementation.
-                                                context.contexts.adapters.template.firewidgets.ch(dataObject)
-                                            );
-                                        }
-                                    }
-                                    // TODO: Get sub-component to render itself by running the chscript and returning it.
-                                    //       At the moment the DOM is parsed after the parent component has finished
-                                    //       rendering to find the sub components and init them. This is slower
-                                    //       and has more overhead that it would have if doing directly here.
-                                    //       This is needed especially when many sub-components are present.
-                                    //       NOTE: The code above may partially fulfill this original requirement.
-                                    return "";
-                                }
-
-                                component.template.render(dataObject);
-
-                                afterRender();
-
-                            } else
-                            if (component.context.adapterId === "jquery") {
-
-                                fill();
-                                markup();
-
-                            } else {
-                                throw new Error("Unknown component adapter ID '" + component.context.adapterId + "'");
-                            }
-                        }
-
-        			    function initSubComponents () {
-        			        if (!initSubComponents._initializedComponents) {
-        			            initSubComponents._initializedComponents = {};
-        			        }
-        			        // TODO: Re-use firewidgets container helper.
-                            var components = {};
-                            $('[data-component-anchor-id]', componentConfig.domNode).each(function () {
-                    			var componentElement = $(this);
-                    			var componentId = componentElement.attr("data-component-id");
-                    			components[componentId] = {
-                    			    id: componentId,
-                    			    impl: componentElement.attr("data-component-impl") || null,
-                    			    domNode: componentElement
-                    			};
-                    		});
-                    		// NOTE: For now we need to re-initialize all sub-components every time
-                    		//       as the HTML gets destroyed on every render.
-                    		// TODO: Cache component context and only re-initialize template rendering logic
-                    		//       attached to the new dom node.
-
-console.log("init sub components");
-
-							return self.instanciateComponents(components, component.context.dataObject).catch(function (err) {
-								console.error("Error initializing sub-components:", err.stack);
-								throw err;
-							});
-        			    }
-
-        			    function onChange () {
-        			        if (!onChange._queue) {
-        			            onChange._queue = [];
-        			        }
-        			        
-        			        function renderNextTransaction () {
-        			            var transaction = onChange._queue[0];
-                                render();
-            			        
-            			        return initSubComponents().then(function () {
-                                    onChange._queue.shift();
-                                    if (onChange._queue.length > 0) {
-                                        renderNextTransaction();
-                                    }
-    							});
-        			        }
-
-        			        // TODO: Pass along the transaction identifier for the dataset
-        			        //       that is being rendered.
-        			        // TODO: Allow cancelling the rendering of a transaction set if
-        			        //       a new one comes in.
-        			        onChange._queue.push(true);
-        			        if (onChange._queue.length === 1) {
-        			            return renderNextTransaction();
-        			        }
-        			    }
-
-                        component.context.on("changed", function (event) {
-                            console.info("COMPONENT CHANGED:", event);
-                            try {
-                                onChange();
-                            } catch (err) {
-            			        console.error("Error rendering component '" + component.context.id + "' on change:", err.stack);
-            			        throw err;
-                            }
-        			    });
-                        return onChange();
 
 			        }).catch(function (err) {
-    			        console.error("Error rendering component '" + component.context.id + "':", err.stack);
+    			        console.error("Error setting up component '" + component.context.id + "' for rendering:", err.stack);
     			        throw err;
 			        });
 			    });
@@ -554,20 +290,20 @@ console.log("init sub components");
 			return loadComponents().then(function () {
 
     			// Setup components so they can reference each other.
-    			return initComponents().then(function () {
+    			return initComponents().then(function (components) {
 
         			// Load initial data for all components based on component state
         			return loadData().then(function () {
 
         			    // Setup rendering and re-rendering of template after every state/data change.
         			    return setupRendering();
+    			    }).then(function () {
+
+//console.log("PAGE ALL DONE!!");
+    			        
+    			        return components;
     			    });
     			});
-			}).then(function () {
-
-console.log("PAGE ALL DONE!!");
-
-			    
 			});
         }
 							
