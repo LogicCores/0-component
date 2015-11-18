@@ -126,6 +126,7 @@ exports.forLib = function (LIB) {
                     LIB.traverse(data).forEach(function () {
                         // TODO: Flatten the various record types.
 					    if (
+					        this.node &&
 					        typeof this.node === "object" &&
 					        this.node.attributes &&
 					        this.node.collection &&
