@@ -7,9 +7,9 @@ exports.forLib = function (LIB) {
 //    const ADAPTER_CHSCRIPT = require("./adapter.chscript").forLib(LIB);
 //    const ADAPTER_JQUERY = require("./adapter.jquery").forLib(LIB);
 
-    const h = LIB.vdom.h;
-    const ch = require("../../../../lib/cvdom/ch");
-    const createElement = LIB.vdom.createElement;
+//    const h = LIB.vdom.h;
+//    const ch = require("../../../../lib/cvdom/ch");
+//    const createElement = LIB.vdom.createElement;
 
     var exports = {};
 
@@ -93,7 +93,8 @@ exports.forLib = function (LIB) {
                                                         );
                                                     });
                                                 }
-
+                                                return resolve(impl);
+/*
                                                 // Render page template
                                                 var layoutInfo = impl.getLayout();
                                                 var chi = ch({
@@ -105,6 +106,7 @@ exports.forLib = function (LIB) {
                                                 return resolve(function render () {
                                                     return createElement(vtree);
                                                 });
+*/
                                             }
                                         });
                                     } else
@@ -180,6 +182,7 @@ exports.forLib = function (LIB) {
         FireWidgetsComponent.prototype.instanciateComponents = function (components, parentDataObject) {
             var self = this;
 
+
 			// TODO: Refactor this to use 'cores/context' once ready. When that happens
 			//       the 'cores/component' module (as most other cores) will be significantly restructured.
 
@@ -238,9 +241,9 @@ exports.forLib = function (LIB) {
 
 
                     if (parentDataObject) {
-                        component.context.setData(parentDataObject, true);
+                        component.context.setData(parentDataObject);
                     }
-                    
+
 
                     return component.ensureInitialized().then(function () {
 
@@ -280,7 +283,8 @@ exports.forLib = function (LIB) {
 
 
 			        }).catch(function (err) {
-    			        console.error("Error setting up component '" + component.context.id + "' for rendering:", err.stack);
+			            console.error("component", component);
+    			        console.error("Error setting up component '" + component.id + "' for rendering:", err.stack);
     			        throw err;
 			        });
 			    });

@@ -39,14 +39,24 @@ exports.forLib = function (LIB) {
                 return state[name];
             };
             self.set = function (name, value, options) {
+
                 options = options || {};
-                if (value === state[name]) return;
+                if (value === state[name]) {
+                    return;
+                }
+
                 var valueBefore = state[name];
                 state[name] = value;
                 // TODO: Warn if value is too large or use alternative method to persist state.
                 localStorage.set(localStorageNamespace, JSON.stringify(state));
-                if (options.notifyChange !== false) {
-                    // NOTE: This is needed to prevent rendering bugs in Semantic UI (e.g. dropdown)
+
+                if (options.notifyChange === false) {
+                    return;
+                }
+
+                self.setData(null);
+/*
+                    // NOTE: This timeout is needed to prevent rendering bugs in Semantic UI (e.g. dropdown)
                     setTimeout(function () {
                         self.emit("changed", {
                             reason: "state",
@@ -55,7 +65,7 @@ exports.forLib = function (LIB) {
                             after: state[name]
                         });
                     }, 0);
-                }
+*/
             };
             
             // Enable this component to interact with other components on the page.
@@ -106,51 +116,82 @@ exports.forLib = function (LIB) {
                 dataConsumer: null
             };
 
+
+            function flattenDataObject (dataObject) {
+                // We remove all 'get' indirection and return a plain JS / JSONifiable object
+                var data = LIB._.cloneDeep(dataObject);
+                LIB.traverse(data).forEach(function () {
+                    // TODO: Flatten the various record types.
+				    if (
+				        this.node &&
+				        typeof this.node === "object" &&
+				        this.node.attributes &&
+				        this.node.collection &&
+				        this.node.collection._byId
+				    ) {
+				        this.parent.node[this.key] = {};
+                        LIB._.assign(this.parent.node[this.key], this.node.attributes);
+				    } else
+					if (typeof this.node === "function") {
+					    if (this.key === "get") {
+                            delete this.parent.node.get;
+                            LIB._.assign(this.parent.node, this.node("*"));
+					    } else {
+// TODO: Only log in debug mode.
+//            							        console.log("Ignore function '" + this.key + "' at '" + this.path.join(".") + "' as we are only calling 'get' functions.");
+					    }
+					} else {
+//            								LIB.traverse(data).set(this.path, this.node);
+					}
+				});
+				return data;
+            }
+
             // NOTE: This IMMUTABLE object gets passed around and will have new data assigned when available
             //       thus anyone with a reference will have access to the new data.
             // TODO: Make immutable.
             self.dataObject = {};
-
-
+/*
+            self.parentDataObject = null;
+            self.setParentData = function (parentDataObject) {
+                self.parentDataObject = parentDataObject;
+            }
+*/
             self.setData = function (data, skipNotify) {
                 var dataBefore = {};
-                // Re-assign all data keys so anyone with already a reference to 'self.dataObject' gets updates.
-                Object.keys(self.dataObject).forEach(function (name) {
-                    dataBefore[name] = self.dataObject[name];
-                    delete self.dataObject[name];
-                });
 
-                function flattenDataObject (dataObject) {
-                    // We remove all 'get' indirection and return a plain JS / JSONifiable object
-                    var data = LIB._.cloneDeep(dataObject);
-                    LIB.traverse(data).forEach(function () {
-                        // TODO: Flatten the various record types.
-					    if (
-					        this.node &&
-					        typeof this.node === "object" &&
-					        this.node.attributes &&
-					        this.node.collection &&
-					        this.node.collection._byId
-					    ) {
-					        this.parent.node[this.key] = {};
-                            LIB._.assign(this.parent.node[this.key], this.node.attributes);
-					    } else
-						if (typeof this.node === "function") {
-						    if (this.key === "get") {
-                                delete this.parent.node.get;
-                                LIB._.assign(this.parent.node, this.node("*"));
-						    } else {
-// TODO: Only log in debug mode.
-//            							        console.log("Ignore function '" + this.key + "' at '" + this.path.join(".") + "' as we are only calling 'get' functions.");
-						    }
-						} else {
-//            								LIB.traverse(data).set(this.path, this.node);
-						}
-					});
-					return data;
+                var snapshotHashBefore = self.dataObject.__snapshot_hash__;
+
+                if (data !== null) {
+                    // Re-assign all data keys so anyone with already a reference to 'self.dataObject' gets updates.
+                    Object.keys(self.dataObject).forEach(function (name) {
+                        dataBefore[name] = self.dataObject[name];
+                        delete self.dataObject[name];
+                    });
                 }
 
-                LIB._.assign(self.dataObject, flattenDataObject(data));
+                if (data !== null) {
+                    LIB._.assign(self.dataObject, flattenDataObject(data));
+                }
+
+                // Compute hash based on content.
+                function hashForObject (obj) {
+                    var md = LIB.forge.md.sha1.create();
+                    md.update(JSON.stringify(obj));
+                    return md.digest().toHex();
+                }
+                delete self.dataObject.__snapshot_hash__;
+                self.dataObject.__snapshot_hash__ = [
+                    "data",
+                    hashForObject(self.dataObject),
+                    "state",
+                    hashForObject(state),
+                ].join(":");
+
+                if (snapshotHashBefore === self.dataObject.__snapshot_hash__) {
+                    if (LIB.VERBOSE) console.log("Skip data change notify for component '" + self.id + "' as data nor state has changed.");
+                    return;
+                }
 
                 if (skipNotify) {
                     return;
@@ -162,6 +203,27 @@ exports.forLib = function (LIB) {
                     after: self.dataObject
                 });
             }
+            
+            self.tplData = {};
+            self.setTemplateData = function (data) {
+
+                self.tplData = flattenDataObject(data || {});
+
+                // Compute hash based on content.
+                function hashForObject (obj) {
+                    var md = LIB.forge.md.sha1.create();
+                    md.update(JSON.stringify(obj));
+                    return md.digest().toHex();
+                }
+                delete self.tplData.__snapshot_hash__;
+                self.tplData.__snapshot_hash__ = [
+                    "data",
+                    hashForObject(self.tplData),
+                    "state",
+                    hashForObject(state),
+                ].join(":");
+            }
+
 
             self.callServerAction = function (action, payload) {
 

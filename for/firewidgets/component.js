@@ -148,18 +148,23 @@ exports.forLib = function (LIB) {
                 // TODO: Pass template from page to inherited component to override or add section implementations.
                 if (componentContext.implAPI.template) {
                     self.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
+                        componentContext.id,
                         componentContext.implAPI.template.getLayout()
                     );
                 } else
                 if (componentContext.implAPI.templateChscript) {
                     self.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
+                        componentContext.id,
                         componentContext.implAPI.templateChscript.getLayout()
                     );
                 } else {
-                    // If the page declares a template use it that.
+                    // If the page declares a template use it
                     var pageOverrideTemplate = context.getComponentOverrideTemplateForActivePage(componentContext.id);
                     if (typeof pageOverrideTemplate.buildVTree === "function") {
-                        self.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(pageOverrideTemplate);
+                        self.template = new context.contexts.adapters.template.firewidgets.VTreeTemplate(
+                            componentContext.id,
+                            pageOverrideTemplate
+                        );
                     } else {
                         throw new Error("Did not find 'buildVTree()' in 'pageOverrideTemplate'!");
                     }
@@ -241,9 +246,11 @@ exports.forLib = function (LIB) {
 	            function syncLatestData () {
 	                // NOTE: This is all SYNCHRONOUS! If you need to get data SYNC use a 'dataConsumer'
 	                try {
+
 		                if (component.context.implAPI.dataConsumer) {
 		                    component.context.setData(component.context.implAPI.dataConsumer.getData(), true);
 		                }
+
 /*
                     // TODO: Compare data objects to see if changed.
                     // TODO: Compare state to see if changed.
@@ -258,18 +265,23 @@ exports.forLib = function (LIB) {
                     }
                     fillComponent._previousDataObject = JSON.stringify(component.context.dataObject);
 */
+
+                        var newData = null;
+
                         if (
                             !component.context.implAPI.getTemplateData ||
                             component.context.adapterId !== "chscript"
                         ) {
-                            return;
+                            newData = component.context.dataObject;
+                        } else {
+    	                    newData = component.context.implAPI.getTemplateData.call(
+                                null,
+                                component.context,
+                                LIB._.assign({}, component.context.dataObject)
+                            );
                         }
 
-	                    component.context.setData(component.context.implAPI.getTemplateData.call(
-                            null,
-                            component.context,
-                            LIB._.assign({}, component.context.dataObject)
-                        ), true);
+	                    component.context.setTemplateData(newData);
 
 	                } catch (err) {
 	                    console.error("Error getting latest data for component '" + component.context.id + "':", err.stack);
@@ -295,7 +307,7 @@ exports.forLib = function (LIB) {
                         fill._helpers,
                         component.context,
                         component.domNode,
-                        component.context.dataObject
+                        component.context.tplData
                     );
                     return;
                 }
@@ -311,7 +323,7 @@ exports.forLib = function (LIB) {
                     component.context.implAPI.markup(
                         component.context,
                         component.domNode,
-                        component.context.dataObject
+                        component.context.tplData
                     );
                     return;
                 }
@@ -333,12 +345,13 @@ exports.forLib = function (LIB) {
                             }
                         };
                     }
+
                     if (component.context.implAPI.afterRender) {
                         component.context.implAPI.afterRender.call(
                             afterRender._helpers,
                             component.context,
                             component.domNode,
-                            component.context.dataObject
+                            component.context.tplData
                         );
                     }
 
@@ -356,9 +369,9 @@ exports.forLib = function (LIB) {
 
                     if (component.context.adapterId === "chscript") {
 
-                        var dataObject = component.context.dataObject;
+                        var tplData = component.context.tplData;
 
-                        dataObject["$anchors"] = dataObject["$anchors"] || function (name) {
+                        tplData["$anchors"] = tplData["$anchors"] || function (name) {
                             if (
                                 component.context.implAPI.template &&
                                 component.context.implAPI.template.getComponents
@@ -371,7 +384,7 @@ exports.forLib = function (LIB) {
                                         //       This allows for controlling sub-components within parent components
                                         //       where sub-components do not need their own controlling implementation.
                                         //       If sub-components are used elsewhere they can be associated with an implementation.
-                                        context.contexts.adapters.template.firewidgets.ch(dataObject)
+                                        context.contexts.adapters.template.firewidgets.ch(tplData)
                                     );
                                 }
                             }
@@ -384,7 +397,12 @@ exports.forLib = function (LIB) {
                             return "";
                         }
 
-                        component.template.render(dataObject);
+                        // Remove all listers which will get re-attached in `afterRender()`
+                        component.template.domNode.off();
+
+                        component.template.render(tplData, {
+                            forceCompleteRerender: component.context.implAPI.forceCompleteRerender || false
+                        });
 
                         afterRender();
 
@@ -410,6 +428,13 @@ exports.forLib = function (LIB) {
 //        			        }
 			        // TODO: Re-use firewidgets container helper.
                     var components = {};
+
+
+//                    component.context.implAPI.template &&
+//                    component.context.implAPI.template.getComponents
+
+
+
                     $('[data-component-anchor-id]', component.domNode).each(function () {
             			var componentElement = $(this);
             			var componentId = componentElement.attr("data-component-id");
@@ -425,7 +450,7 @@ exports.forLib = function (LIB) {
             		// TODO: Cache component context and only re-initialize template rendering logic
             		//       attached to the new dom node.
 
-					return componentHelpers.instanciateSubComponents(components, component.context.dataObject).then(function (_subComponents) {
+					return componentHelpers.instanciateSubComponents(components, component.context.tplData).then(function (_subComponents) {
 
 					    subComponents = _subComponents;
 
@@ -443,7 +468,8 @@ exports.forLib = function (LIB) {
 
 
 			    function onChange () {
-console.log("handle onChange() for component '" + component.id + "'");
+
+			        if (LIB.VERBOSE) console.info("Handle onChange() for component '" + component.id + "'");
 
                     return LIB.Promise.try(function () {
                         
