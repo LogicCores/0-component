@@ -107,7 +107,7 @@ exports.forLib = function (LIB) {
                 }
                 state.componentsForPages[contexts.page.getPath()][component.id] = component;
                 component.context.once("destroy", function () {
-                    delete state.componentsForPages[contexts.page.getPath()];
+                    delete state.componentsForPages[contexts.page.getPath()][component.id];
                 });
                 if (registerComponentForActivePage_waiting[component.id]) {
                     registerComponentForActivePage_waiting[component.id].forEach(function (deferred) {
@@ -116,6 +116,12 @@ exports.forLib = function (LIB) {
                     registerComponentForActivePage_waiting[component.id] = [];
                 }
             }
+            
+            self.resetComponentsForActivePage = function () {
+                delete state.componentsForPages[contexts.page.getPath()];
+                registerComponentForActivePage_waiting = {};
+            }
+
             self.getComponentForActivePage = function (id) {
                 if (!state.componentsForPages[contexts.page.getPath()]) {
                     return null;

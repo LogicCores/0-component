@@ -550,7 +550,10 @@ exports.forLib = function (LIB) {
         return {
             Component: Component,
             getForKey: function (componentKey, componentContext) {
-                if (!cache[componentKey]) {
+                if (
+                    !cache[componentKey] ||
+                    context.config.alwaysReload !== false
+                ) {
 //console.info("Init new component for key '" + componentKey + "':", componentContext);
                     cache[componentKey] = new Component(componentContext);
                 } else {

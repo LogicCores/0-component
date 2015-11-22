@@ -311,8 +311,14 @@ exports.forLib = function (LIB) {
         return {
             ComponentContext: ComponentContext,
             getForKey: function (componentKey, componentConfig) {
-                if (!cache[componentKey]) {
+                if (
+                    !cache[componentKey] ||
+                    context.config.alwaysReload !== false
+                ) {
 //console.info("Init new component context for key '" + componentKey + "':", componentConfig);
+                    if (cache[componentKey]) {
+                        cache[componentKey].destroy();
+                    }
                     cache[componentKey] = new ComponentContext(componentConfig);
                 } else {
 //console.log("Use existing component context for key:", componentKey);
