@@ -400,9 +400,13 @@ exports.forLib = function (LIB) {
                         // Remove all listers which will get re-attached in `afterRender()`
                         component.template.domNode.off();
 
-                        component.template.render(tplData, {
-                            forceCompleteRerender: component.context.implAPI.forceCompleteRerender || false
-                        });
+                        try {
+                            component.template.render(tplData, {
+                                forceCompleteRerender: component.context.implAPI.forceCompleteRerender || false
+                            });
+                        } catch (err) {
+                            console.error("Error rendering component '" + self.id + "':", err.stack);
+                        }
 
                         afterRender();
 
@@ -423,6 +427,9 @@ exports.forLib = function (LIB) {
                 var reactToChanges = false;
 
 			    function initSubComponents () {
+
+                    if (LIB.VERBOSE) console.log("Init sub-components for '" + component.id + "'!");
+
 //        			        if (!initSubComponents._initializedComponents) {
 //        			            initSubComponents._initializedComponents = {};
 //        			        }
@@ -484,8 +491,12 @@ exports.forLib = function (LIB) {
     			        function renderNextTransaction () {
     			            var transaction = onChange._queue[0];
     
-                            render();
-        			        
+                            try {
+                                render();
+                            } catch (err) {
+                                console.error("Error rendering component '" + self.id + "':", err.stack);
+                            }
+
         			        return initSubComponents().then(function () {
                                 onChange._queue.shift();
                                 if (onChange._queue.length > 0) {
@@ -522,9 +533,13 @@ exports.forLib = function (LIB) {
                 });
                 component.on("hide", function () {
                     reactToChanges = false;
-                    subComponents.forEach(function (subComponent) {
-                        subComponent.hide();
-                    });
+                    if (subComponents) {
+                        subComponents.forEach(function (subComponent) {
+                            subComponent.hide();
+                        });
+                    } else {
+                        if (LIB.VERBOSE) console.warn("No sub-components found for component '" + component.id + "'!");
+                    }
                 });
 //                return onChange();
             }
